@@ -1,14 +1,15 @@
 extern crate serde;
 extern crate anyhow;
 extern crate async_trait;
+extern crate quick_cache;
 
 use std::error::Error;
 use std::future::Future;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use serde::{Deserialize, Serialize};
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -18,15 +19,17 @@ use axum::routing::get;
 use hashring::HashRing;
 use tracing::log;
 use tracing::log::log;
+use quick_cache::sync::Cache;
+
 
 static VNODES_PER_PEER: i32 = 10;
 
-// let's start with defining a couple of traits.
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Peer {
     pub socket: SocketAddr,
 }
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 struct VNode {
     id: usize,
     addr: SocketAddr,
@@ -67,8 +70,42 @@ pub struct GetResponseFailure {
     error: String,
 }
 
-pub trait Transport {
-    fn get_rpc(&self, peer: &Peer, req: &GetRequest) -> Result<GetResponse>;
+#[async_trait]
+pub trait Transport: Send + Sync {
+    async fn get_rpc(&self, peer: &Peer, req: &GetRequest) -> Result<GetResponse>;
+}
+
+pub struct ReqwestTransport {
+    client: reqwest::Client,
+}
+
+impl ReqwestTransport {
+    pub fn new() -> Self {
+        Self {
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
+#[async_trait]
+impl Transport for ReqwestTransport {
+    async fn get_rpc(&self, peer: &Peer, req: &GetRequest) -> Result<GetResponse> {
+        let addr = peer.socket.to_string();
+        let response = self.client
+            .get(format!("http://{}/get/{}", addr, req.key))
+            .send()
+            .await?;
+
+        let status = response.status();
+        if status != StatusCode::OK {
+            let body = response.json::<GetResponseFailure>().await?;
+            bail!("bad status code: {}, {:?}", status, body);
+        }
+
+        let response = response.json::<GetResponse>().await?;
+
+        Ok((response))
+    }
 }
 
 
@@ -79,7 +116,10 @@ trait Retriever {
 
 pub struct Groupcache {
     me: Peer,
-    ring: HashRing<VNode>,
+    peers: RwLock<Vec<Peer>>,
+    ring: Arc<RwLock<HashRing<VNode>>>,
+    cache: Cache<String, String>,
+    transport: Box<dyn Transport>,
 }
 
 pub async fn start_server(
@@ -97,30 +137,60 @@ pub async fn start_server(
 }
 
 impl Groupcache {
-    pub fn new(me: Peer) -> Self {
-        let mut ring= HashRing::new();
+    pub fn new(me: Peer, transport: Box<dyn Transport>) -> Self {
+        let ring = {
+            let mut ring = HashRing::new();
+            let vnodes = VNode::vnodes_for_peer(&me, VNODES_PER_PEER);
+            for vnode in vnodes {
+                ring.add(vnode)
+            }
 
-        let vnodes = VNode::vnodes_for_peer(&me, VNODES_PER_PEER);
-        for vnode in vnodes {
-            ring.add(vnode)
-        }
+            Arc::new(RwLock::new(ring))
+        };
+
+        let cache = Cache::<String, String>::new(1_000_000);
+        let peers = RwLock::new(vec![me.clone()]);
 
         Self {
             me,
-            ring
+            peers,
+            ring,
+            cache,
+            transport,
         }
     }
 
+    async fn get(&self, key: &str) -> Result<String> {
+        let peer = {
+            let lock = self.ring.read()
+                .unwrap();
 
-    fn get(&self, key: &str) -> Result<String> {
-        Err(anyhow::anyhow!("not implemented"))
-    }
-    // or set_peers
-    fn add_peer(&self, node: &Peer) -> Result<()> {
-        todo!();
+            let vnode = lock
+                .get(&key)
+                .context("no node found")?;
+            Peer { socket: vnode.addr.clone() }
+        };
+
+        let GetResponse { key, value } = self.transport.get_rpc(&peer, &GetRequest {
+            key: key.to_string(),
+        }).await.context("failed to retrieve kv from peer")?;
+
+        self.cache.insert(key, value.clone());
+        Ok(value)
     }
 
-    fn remove_peer(&self, node: &Peer) -> Result<()> {
+    fn add_peer(&self, peer: Peer) -> Result<()> {
+        if !self.peers.read().unwrap().contains(&peer) {
+            self.peers.write().unwrap().push(peer.clone());
+            let vnodes = VNode::vnodes_for_peer(&peer, VNODES_PER_PEER);
+            let mut lock = self.ring.write().unwrap();
+            for vnode in vnodes {
+                lock.add(vnode);
+            }
+        } else {
+            bail!("peer already exists");
+        }
+
         todo!();
     }
 }
@@ -131,7 +201,7 @@ async fn get_rpc_handler(
 ) -> Response {
     log::info!("get_rpc_handler, {}!", key_id);
 
-    return match groupcache.get(&key_id) {
+    return match groupcache.get(&key_id).await {
         Ok(value) => {
             let response_body = GetResponse {
                 key: key_id,

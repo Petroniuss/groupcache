@@ -15,7 +15,10 @@ async fn main() -> Result<()> {
     };
     info!("starting server on {}", me.socket);
 
-    let groupcache = Arc::new(groupcache::Groupcache::new(me));
+    let transport = groupcache::ReqwestTransport::new();
+    let groupcache = Arc::new(groupcache::Groupcache::new(
+        me, Box::new(transport))
+    );
     start_server(groupcache)
         .await
         .context("failed to start server")?;

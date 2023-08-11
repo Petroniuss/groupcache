@@ -14,3 +14,4 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 reqwest = { workspace = true }
 async-trait = { workspace = true }
+quick_cache = { workspace = true }
