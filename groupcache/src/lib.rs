@@ -15,7 +15,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{Json, Router};
-use axum::routing::get;
+use axum::routing::{get, post};
 use hashring::HashRing;
 use tracing::log;
 use tracing::log::log;
@@ -125,11 +125,13 @@ pub struct Groupcache {
 pub async fn start_server(
     groupcache: Arc<Groupcache>,
 ) -> Result<()> {
+    let port = groupcache.me.socket.port();
     let app = Router::new()
         .route("/get/:key_id", get(get_rpc_handler))
+        .route("/add_peer/:peer", post(add_peer_rpc_handler))
         .with_state(groupcache);
 
-    axum::Server::bind(&SocketAddr::from(([127, 0, 0, 1], 3000)))
+    axum::Server::bind(&SocketAddr::from(([127, 0, 0, 1], port)))
         .serve(app.into_make_service())
         .await?;
 
@@ -161,6 +163,10 @@ impl Groupcache {
     }
 
     async fn get(&self, key: &str) -> Result<String> {
+        if let Some(value) = self.cache.get(key) {
+            return Ok(value);
+        }
+
         let peer = {
             let lock = self.ring.read()
                 .unwrap();
@@ -170,12 +176,21 @@ impl Groupcache {
                 .context("no node found")?;
             Peer { socket: vnode.addr.clone() }
         };
+        log::info!("peer {:?} getting from peer: {:?}", self.me.socket, peer.socket);
 
-        let GetResponse { key, value } = self.transport.get_rpc(&peer, &GetRequest {
-            key: key.to_string(),
-        }).await.context("failed to retrieve kv from peer")?;
+        let value = if peer == self.me {
+            // todo: call retriever and compute the value in cache
+            let value  = format!("{}-v", key);
+            self.cache.insert(key.to_string(), value.clone());
+            value
+        } else {
+            let GetResponse { key, value } = self.transport.get_rpc(&peer, &GetRequest {
+                key: key.to_string(),
+            }).await.context("failed to retrieve kv from peer")?;
 
-        self.cache.insert(key, value.clone());
+            value
+        };
+
         Ok(value)
     }
 
@@ -191,8 +206,23 @@ impl Groupcache {
             bail!("peer already exists");
         }
 
-        todo!();
+        Ok(())
     }
+}
+
+async fn add_peer_rpc_handler(
+    Path(peer_address): Path<String>,
+    State(groupcache): State<Arc<Groupcache>>,
+) -> (StatusCode) {
+    let Ok(socket) = peer_address.parse::<SocketAddr>() else {
+        return StatusCode::BAD_REQUEST;
+    };
+
+    let Ok(_) = groupcache.add_peer(Peer { socket }) else {
+        return StatusCode::INTERNAL_SERVER_ERROR;
+    };
+
+    StatusCode::OK
 }
 
 async fn get_rpc_handler(
