@@ -5,6 +5,7 @@ extern crate async_trait;
 use std::error::Error;
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr;
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
@@ -14,12 +15,39 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{Json, Router};
 use axum::routing::get;
+use hashring::HashRing;
 use tracing::log;
 use tracing::log::log;
 
+static VNODES_PER_PEER: i32 = 10;
+
 // let's start with defining a couple of traits.
 pub struct Peer {
-    ip: IpAddr,
+    pub socket: SocketAddr,
+}
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq)]
+struct VNode {
+    id: usize,
+    addr: SocketAddr,
+}
+
+impl VNode {
+    fn new(addr: SocketAddr, id: usize) -> Self {
+        VNode {
+            id,
+            addr,
+        }
+    }
+
+    fn vnodes_for_peer(peer: &Peer, num: i32) -> Vec<VNode> {
+        let mut vnodes = Vec::new();
+        for i in 0..num {
+            let vnode = VNode::new(peer.socket.clone(), i as usize);
+            vnodes.push(vnode);
+        }
+        vnodes
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,7 +77,10 @@ trait Retriever {
     async fn retrieve(&self, key: &str) -> Result<String>;
 }
 
-pub struct Groupcache {}
+pub struct Groupcache {
+    me: Peer,
+    ring: HashRing<VNode>,
+}
 
 pub async fn start_server(
     groupcache: Arc<Groupcache>,
@@ -66,9 +97,20 @@ pub async fn start_server(
 }
 
 impl Groupcache {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(me: Peer) -> Self {
+        let mut ring= HashRing::new();
+
+        let vnodes = VNode::vnodes_for_peer(&me, VNODES_PER_PEER);
+        for vnode in vnodes {
+            ring.add(vnode)
+        }
+
+        Self {
+            me,
+            ring
+        }
     }
+
 
     fn get(&self, key: &str) -> Result<String> {
         Err(anyhow::anyhow!("not implemented"))
