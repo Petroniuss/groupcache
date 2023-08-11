@@ -1,11 +1,14 @@
 extern crate serde;
 extern crate anyhow;
+extern crate async_trait;
 
 use std::error::Error;
 use std::future::Future;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
+use async_trait::async_trait;
+use axum::Router;
 
 // let's start with defining a couple of traits.
 pub struct Peer {
@@ -27,34 +30,48 @@ pub trait Transport {
     fn get_rpc(&self, peer: &Peer, req: &GetRequest) -> Result<GetResponse>;
 }
 
-pub trait GroupCacheBuilder<S: GroupCache> {
-    fn with_max_size(&mut self, max_bytes: u64);
 
-    fn with_value_retriever<AsyncFn, Fut>(&mut self, retriever: AsyncFn)
-        where
-            AsyncFn: Fn() -> Fut,
-            Fut: Future<Output=Result<String>>
-    ;
-
-    fn with_tokio_axum_transport(&mut self);
-
-    fn with_custom_transport(&mut self, transport: impl Transport);
-
-    fn build() -> S;
+#[async_trait]
+trait Retriever {
+    async fn retrieve(&self, key: &str) -> Result<String>;
 }
 
+pub struct Groupcache {
+    port: u16,
+    base_url: String,
+}
 
-pub trait GroupCache {
-    fn get(&self, key: &str) -> Result<String>;
+impl Groupcache {
+    async fn start_server(&self) -> Result<()> {
+        // todo: make sure this is called only once.
+        let app = Router::new()
+            .with_state(1337);
 
-    fn set(&self, key: &str, value: &str) -> Result<()>;
+        axum::Server::bind(&SocketAddr::from(([127, 0, 0, 1], self.port)))
+            .serve(app.into_make_service())
+            .await?;
 
+        Ok(())
+    }
+
+    fn get(&self, key: &str) -> Result<String> {
+        todo!()
+    }
     // or set_peers
-    fn add_peer(&self, node: &Peer) -> Result<()>;
+    fn add_peer(&self, node: &Peer) -> Result<()> {
+        todo!();
+    }
 
-    fn remove_peer(&self, node: &Peer) -> Result<()>;
+    fn remove_peer(&self, node: &Peer) -> Result<()> {
+        todo!();
+    }
 }
 
+pub struct GroupcacheBuilderImpl {
+    max_bytes: u64,
+    retriever: Box<dyn Retriever>,
+    transport: Box<dyn Transport>,
+}
 
 #[cfg(test)]
 mod tests {
