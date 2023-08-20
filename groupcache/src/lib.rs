@@ -3,6 +3,7 @@ extern crate anyhow;
 extern crate async_trait;
 extern crate quick_cache;
 
+use groupcache_pb::groupcache_pb::groupcache_server;
 use std::error::Error;
 use std::future::Future;
 use std::net::SocketAddr;
@@ -14,12 +15,13 @@ use async_trait::async_trait;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::{Json, Router};
+use axum::{Json, Router, Server};
 use axum::routing::{get, post};
 use hashring::HashRing;
-use tracing::log;
+use tracing::{info, log};
 use tracing::log::log;
 use quick_cache::sync::Cache;
+use tonic::{IntoRequest, Request, Status};
 
 
 static VNODES_PER_PEER: i32 = 10;
@@ -122,21 +124,34 @@ pub struct Groupcache {
     transport: Box<dyn Transport>,
 }
 
-pub async fn start_server(
+#[async_trait]
+impl groupcache_server::Groupcache for Groupcache {
+    async fn get(&self, request: Request<groupcache_pb::groupcache_pb::GetRequest>) ->
+    std::result::Result<tonic::Response<groupcache_pb::groupcache_pb::GetResponse>, Status> {
+        let payload = request.into_inner();
+        let v = format!("{}-v", payload.key.clone()).into_bytes();
+        info!("get key:{}", payload.key);
+        Ok(tonic::Response::new(groupcache_pb::groupcache_pb::GetResponse {
+            value: Some(v)
+        }))
+    }
+}
+
+
+pub async fn start_grpc_server(
     groupcache: Arc<Groupcache>,
 ) -> Result<()> {
-    let port = groupcache.me.socket.port();
-    let app = Router::new()
-        .route("/get/:key_id", get(get_rpc_handler))
-        .route("/add_peer/:peer", post(add_peer_rpc_handler))
-        .with_state(groupcache);
+    let addr = groupcache.me.socket.clone();
+    info!("Groupcache server listening on {}", addr);
 
-    axum::Server::bind(&SocketAddr::from(([127, 0, 0, 1], port)))
-        .serve(app.into_make_service())
+    tonic::transport::Server::builder()
+        .add_service(groupcache_server::GroupcacheServer::from_arc(groupcache))
+        .serve(addr)
         .await?;
 
     Ok(())
 }
+
 
 impl Groupcache {
     pub fn new(me: Peer, transport: Box<dyn Transport>) -> Self {
@@ -180,7 +195,7 @@ impl Groupcache {
 
         let value = if peer == self.me {
             // todo: call retriever and compute the value in cache
-            let value  = format!("{}-v", key);
+            let value = format!("{}-v", key);
             self.cache.insert(key.to_string(), value.clone());
             value
         } else {

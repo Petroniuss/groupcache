@@ -1,4 +1,16 @@
+
+
+
 # Design
+
+
+I want to do the following:
+- write a simple application (axum) using this cache
+- benchmark how well it performs in a distributed setting (multiple peers, using multiple cores)
+
+
+## 20.08.2023
+Implement gRPC server and client. 
 
 ## Requirements
 
@@ -9,7 +21,7 @@
 2. Provide a simple API to retrieve values associated with a key from the cache.
 3. Provide API to set key-value pair.
 4. Provide API to load value from cache.
-5. Support cache dumps and loads for persistence:
+5. Support cache dumps and loads for persistence?:
    - that's problematic because once a peer goes down, 
      other peers would notice its absence and take ownership of its keys.
    - How do we guarantee that the peer that comes back up will have the same keys?
@@ -27,6 +39,7 @@ This looks good to me :)
      
 6. Distributed cache should be highly available and partition tolerant:
     - It should be possible to specify replication factor.
+
 
 
 ## Implementation

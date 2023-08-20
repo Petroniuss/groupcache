@@ -1,1 +1,1 @@
-mod groupcache_pb;
+pub mod groupcache_pb;
