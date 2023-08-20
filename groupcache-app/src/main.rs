@@ -7,6 +7,10 @@ use groupcache::{Peer, start_server};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // todo: move axum to the app layer so that we can add a peer
+    // and get a value from the cache
+    // groupcache should probably use tonic for RPC layer with http/2 support.
+
     tracing_subscriber::fmt::init();
 
     let port = env::var("PORT").unwrap_or("3000".to_string());

@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package groupcache_pb;
+
+message GetRequest {
+  string key = 1;
+}
+
+message GetResponse {
+  optional bytes value = 1;
+}
+
+service GroupCache {
+  rpc Get(GetRequest) returns (GetResponse) {
+  };
+}
