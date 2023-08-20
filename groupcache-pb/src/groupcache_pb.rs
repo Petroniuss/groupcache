@@ -11,15 +11,15 @@ pub struct GetResponse {
     pub value: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 /// Generated client implementations.
-pub mod group_cache_client {
+pub mod groupcache_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
-    pub struct GroupCacheClient<T> {
+    pub struct GroupcacheClient<T> {
         inner: tonic::client::Grpc<T>,
     }
-    impl GroupCacheClient<tonic::transport::Channel> {
+    impl GroupcacheClient<tonic::transport::Channel> {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
@@ -30,7 +30,7 @@ pub mod group_cache_client {
             Ok(Self::new(conn))
         }
     }
-    impl<T> GroupCacheClient<T>
+    impl<T> GroupcacheClient<T>
     where
         T: tonic::client::GrpcService<tonic::body::BoxBody>,
         T::Error: Into<StdError>,
@@ -48,7 +48,7 @@ pub mod group_cache_client {
         pub fn with_interceptor<F>(
             inner: T,
             interceptor: F,
-        ) -> GroupCacheClient<InterceptedService<T, F>>
+        ) -> GroupcacheClient<InterceptedService<T, F>>
         where
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
@@ -62,7 +62,7 @@ pub mod group_cache_client {
                 http::Request<tonic::body::BoxBody>,
             >>::Error: Into<StdError> + Send + Sync,
         {
-            GroupCacheClient::new(InterceptedService::new(inner, interceptor))
+            GroupcacheClient::new(InterceptedService::new(inner, interceptor))
         }
         /// Compress requests with the given encoding.
         ///
@@ -110,29 +110,29 @@ pub mod group_cache_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/groupcache_pb.GroupCache/Get",
+                "/groupcache_pb.Groupcache/Get",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("groupcache_pb.GroupCache", "Get"));
+                .insert(GrpcMethod::new("groupcache_pb.Groupcache", "Get"));
             self.inner.unary(req, path, codec).await
         }
     }
 }
 /// Generated server implementations.
-pub mod group_cache_server {
+pub mod groupcache_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
-    /// Generated trait containing gRPC methods that should be implemented for use with GroupCacheServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with GroupcacheServer.
     #[async_trait]
-    pub trait GroupCache: Send + Sync + 'static {
+    pub trait Groupcache: Send + Sync + 'static {
         async fn get(
             &self,
             request: tonic::Request<super::GetRequest>,
         ) -> std::result::Result<tonic::Response<super::GetResponse>, tonic::Status>;
     }
     #[derive(Debug)]
-    pub struct GroupCacheServer<T: GroupCache> {
+    pub struct GroupcacheServer<T: Groupcache> {
         inner: _Inner<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
@@ -140,7 +140,7 @@ pub mod group_cache_server {
         max_encoding_message_size: Option<usize>,
     }
     struct _Inner<T>(Arc<T>);
-    impl<T: GroupCache> GroupCacheServer<T> {
+    impl<T: Groupcache> GroupcacheServer<T> {
         pub fn new(inner: T) -> Self {
             Self::from_arc(Arc::new(inner))
         }
@@ -192,9 +192,9 @@ pub mod group_cache_server {
             self
         }
     }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for GroupCacheServer<T>
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for GroupcacheServer<T>
     where
-        T: GroupCache,
+        T: Groupcache,
         B: Body + Send + 'static,
         B::Error: Into<StdError> + Send + 'static,
     {
@@ -210,10 +210,10 @@ pub mod group_cache_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/groupcache_pb.GroupCache/Get" => {
+                "/groupcache_pb.Groupcache/Get" => {
                     #[allow(non_camel_case_types)]
-                    struct GetSvc<T: GroupCache>(pub Arc<T>);
-                    impl<T: GroupCache> tonic::server::UnaryService<super::GetRequest>
+                    struct GetSvc<T: Groupcache>(pub Arc<T>);
+                    impl<T: Groupcache> tonic::server::UnaryService<super::GetRequest>
                     for GetSvc<T> {
                         type Response = super::GetResponse;
                         type Future = BoxFuture<
@@ -267,7 +267,7 @@ pub mod group_cache_server {
             }
         }
     }
-    impl<T: GroupCache> Clone for GroupCacheServer<T> {
+    impl<T: Groupcache> Clone for GroupcacheServer<T> {
         fn clone(&self) -> Self {
             let inner = self.inner.clone();
             Self {
@@ -279,7 +279,7 @@ pub mod group_cache_server {
             }
         }
     }
-    impl<T: GroupCache> Clone for _Inner<T> {
+    impl<T: Groupcache> Clone for _Inner<T> {
         fn clone(&self) -> Self {
             Self(Arc::clone(&self.0))
         }
@@ -289,7 +289,7 @@ pub mod group_cache_server {
             write!(f, "{:?}", self.0)
         }
     }
-    impl<T: GroupCache> tonic::server::NamedService for GroupCacheServer<T> {
-        const NAME: &'static str = "groupcache_pb.GroupCache";
+    impl<T: Groupcache> tonic::server::NamedService for GroupcacheServer<T> {
+        const NAME: &'static str = "groupcache_pb.Groupcache";
     }
 }

@@ -1,5 +1,5 @@
 [package]
-name = "groupcache-bd"
+name = "groupcache-pb"
 version = "0.1.0"
 edition = "2021"
 

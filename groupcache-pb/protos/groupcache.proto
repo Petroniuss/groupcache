@@ -10,7 +10,7 @@ message GetResponse {
   optional bytes value = 1;
 }
 
-service GroupCache {
+service Groupcache {
   rpc Get(GetRequest) returns (GetResponse) {
   };
 }
