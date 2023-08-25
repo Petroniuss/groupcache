@@ -15,8 +15,7 @@ use async_trait::async_trait;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::{Json, Router, Server};
-use axum::routing::{get, post};
+use axum::Json;
 use hashring::HashRing;
 use tracing::{info, log};
 use tracing::log::log;
@@ -68,8 +67,8 @@ pub struct GetResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetResponseFailure {
-    key: String,
-    error: String,
+    pub key: String,
+    pub error: String,
 }
 
 #[async_trait]
@@ -120,9 +119,12 @@ pub struct Groupcache {
     me: Peer,
     peers: RwLock<Vec<Peer>>,
     ring: Arc<RwLock<HashRing<VNode>>>,
-    cache: Cache<String, String>,
+    cache: Cache<Key, Value>,
     transport: Box<dyn Transport>,
 }
+
+type Value = Vec<u8>;
+type Key = String;
 
 #[async_trait]
 impl groupcache_server::Groupcache for Groupcache {
@@ -165,7 +167,7 @@ impl Groupcache {
             Arc::new(RwLock::new(ring))
         };
 
-        let cache = Cache::<String, String>::new(1_000_000);
+        let cache = Cache::new(1_000_000);
         let peers = RwLock::new(vec![me.clone()]);
 
         Self {
@@ -177,7 +179,7 @@ impl Groupcache {
         }
     }
 
-    async fn get(&self, key: &str) -> Result<String> {
+    pub async fn get(&self, key: &Key) -> Result<Value> {
         if let Some(value) = self.cache.get(key) {
             return Ok(value);
         }
@@ -194,16 +196,16 @@ impl Groupcache {
         log::info!("peer {:?} getting from peer: {:?}", self.me.socket, peer.socket);
 
         let value = if peer == self.me {
-            // todo: call retriever and compute the value in cache
-            let value = format!("{}-v", key);
-            self.cache.insert(key.to_string(), value.clone());
+            let value = vec![1, 2, 3];
+            self.cache.insert(key.clone(), value.clone());
             value
         } else {
-            let GetResponse { key, value } = self.transport.get_rpc(&peer, &GetRequest {
-                key: key.to_string(),
-            }).await.context("failed to retrieve kv from peer")?;
+            // todo: call grpc endpoint
+            // let GetResponse { key, value } = self.transport.get_rpc(&peer, &GetRequest {
+            //     key: key.to_string(),
+            // }).await.context("failed to retrieve kv from peer")?;
 
-            value
+            vec![1, 2, 3]
         };
 
         Ok(value)
@@ -240,36 +242,6 @@ async fn add_peer_rpc_handler(
     StatusCode::OK
 }
 
-async fn get_rpc_handler(
-    Path(key_id): Path<String>,
-    State(groupcache): State<Arc<Groupcache>>,
-) -> Response {
-    log::info!("get_rpc_handler, {}!", key_id);
-
-    return match groupcache.get(&key_id).await {
-        Ok(value) => {
-            let response_body = GetResponse {
-                key: key_id,
-                value,
-            };
-            (StatusCode::OK, Json(response_body)).into_response()
-        }
-        Err(error) => {
-            let response_body = GetResponseFailure {
-                key: key_id,
-                error: error.to_string(),
-            };
-
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(response_body)).into_response()
-        }
-    };
-}
-
-pub struct GroupcacheBuilderImpl {
-    max_bytes: u64,
-    retriever: Box<dyn Retriever>,
-    transport: Box<dyn Transport>,
-}
 
 #[cfg(test)]
 mod tests {
