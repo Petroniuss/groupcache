@@ -43,7 +43,7 @@ async fn axum(port: u16, groupcache: Arc<Groupcache>) -> Result<()> {
 
     let app = Router::new()
         .route("/root", get(root))
-        .route("/get/:key_id", get(get_key_handler))
+        .route("/key/:key_id", get(get_key_handler))
         .route("/peer/:peer_addr", put(add_peer_handler))
         .with_state(groupcache);
 

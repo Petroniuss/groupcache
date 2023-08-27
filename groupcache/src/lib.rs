@@ -4,16 +4,15 @@ extern crate async_trait;
 extern crate quick_cache;
 
 use std::collections::HashMap;
-use groupcache_pb::groupcache_pb::groupcache_server;
+use groupcache_pb::groupcache_pb::{GetRequest, groupcache_server};
 use std::error::Error;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use serde::{Deserialize, Serialize};
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use hashring::HashRing;
 use tracing::{info, log};
@@ -64,64 +63,9 @@ impl VNode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetRequest {
-    key: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetResponse {
-    key: String,
-    value: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetResponseFailure {
     pub key: String,
     pub error: String,
-}
-
-#[async_trait]
-pub trait Transport: Send + Sync {
-    async fn get_rpc(&self, peer: &Peer, req: &GetRequest) -> Result<GetResponse>;
-}
-
-pub struct ReqwestTransport {
-    client: reqwest::Client,
-}
-
-impl ReqwestTransport {
-    pub fn new() -> Self {
-        Self {
-            client: reqwest::Client::new(),
-        }
-    }
-}
-
-#[async_trait]
-impl Transport for ReqwestTransport {
-    async fn get_rpc(&self, peer: &Peer, req: &GetRequest) -> Result<GetResponse> {
-        let addr = peer.socket.to_string();
-        let response = self.client
-            .get(format!("http://{}/get/{}", addr, req.key))
-            .send()
-            .await?;
-
-        let status = response.status();
-        if status != StatusCode::OK {
-            let body = response.json::<GetResponseFailure>().await?;
-            bail!("bad status code: {}, {:?}", status, body);
-        }
-
-        let response = response.json::<GetResponse>().await?;
-
-        Ok((response))
-    }
-}
-
-
-#[async_trait]
-trait Retriever {
-    async fn retrieve(&self, key: &str) -> Result<String>;
 }
 
 struct SharedPeerState {
@@ -174,12 +118,13 @@ pub type Key = String;
 
 #[async_trait]
 impl groupcache_server::Groupcache for Groupcache {
-    async fn get(&self, request: Request<groupcache_pb::groupcache_pb::GetRequest>) ->
+    async fn get(&self, request: Request<GetRequest>) ->
     std::result::Result<tonic::Response<groupcache_pb::groupcache_pb::GetResponse>, Status> {
+        // simply call getter
         let payload = request.into_inner();
         info!("get key:{}", payload.key);
 
-        match self.load_locally(&payload.key).await {
+        match self.get(&payload.key).await {
             Ok(value) => {
                 Ok(tonic::Response::new(groupcache_pb::groupcache_pb::GetResponse {
                     value: Some(value)
@@ -207,7 +152,6 @@ pub async fn start_grpc_server(
 
     Ok(())
 }
-
 
 #[async_trait]
 pub trait ValueLoader: Send + Sync {
@@ -281,13 +225,15 @@ impl Groupcache {
                 }.into_request()).await?;
 
                 let get_response = response.into_inner();
+                let value = get_response.value.unwrap();
 
-                Ok(get_response.value)
-
+                value
             };
 
         Ok(value)
     }
+
+
 
     async fn load_locally(&self, key: &Key) -> Result<Value> {
         let v = self.loader.load(key).await.map_err(anyhow::Error::msg)?;
