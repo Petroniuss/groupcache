@@ -1,16 +1,19 @@
 use std::env;
+use std::error::Error;
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
+use std::time::Duration;
 use anyhow::Context;
 use anyhow::Result;
+use async_trait::async_trait;
 use axum::extract::{Path, State};
 use axum::{Json, Router};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tracing::{info, log};
-use groupcache::{GetResponseFailure, Groupcache, Peer, start_grpc_server};
+use groupcache::{GetResponseFailure, Groupcache, Key, Peer, start_grpc_server, Value};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,6 +29,8 @@ async fn main() -> Result<()> {
 
     let groupcache = configure_groupcache(groupcache_port).await?;
 
+    // todo: it should be possible to leave it up to the user to run groupcache on the same port as axum
+    //      tldr; multiplex traffic to both application axum web service and groupcache.
     let res =
         tokio::try_join!(run_groupcache(groupcache.clone()), axum(axum_port, groupcache.clone()))?;
 
@@ -48,15 +53,36 @@ async fn axum(port: u16, groupcache: Arc<Groupcache>) -> Result<()> {
     Ok(())
 }
 
+struct CacheLoader { }
+
+#[async_trait]
+impl groupcache::ValueLoader for CacheLoader {
+    async fn load(&self, key: &Key) ->
+        std::result::Result<Value, Box<dyn Error + Send + Sync + 'static>> {
+        use tokio::time::{sleep};
+        info!("Starting a long computation.. about a 100ms.");
+
+        sleep(Duration::from_millis(100)).await;
+
+        let value_str = format!("{}-v", key);
+        Ok(value_str.into_bytes())
+    }
+}
+
+
+
 async fn configure_groupcache(port: u16) -> Result<Arc<Groupcache>> {
     let me = Peer {
         socket: format!("127.0.0.1:{}", port).parse()?,
     };
 
-    let transport = groupcache::ReqwestTransport::new();
-    let groupcache = Arc::new(groupcache::Groupcache::new(
-        me, Box::new(transport))
-    );
+    let loader = CacheLoader { };
+
+    // todo: groupcache should be already wrapped within an Arc.
+    let groupcache = Arc::new(Groupcache::new(
+        me,
+        Box::new(loader)
+    ));
 
     Ok(groupcache)
 }

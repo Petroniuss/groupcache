@@ -14,11 +14,10 @@ use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-use axum::Json;
+use axum::response::IntoResponse;
 use hashring::HashRing;
 use tracing::{info, log};
-use tracing::log::log;
+use tracing::log::{error, log};
 use quick_cache::sync::Cache;
 use tonic::{IntoRequest, Request, Status};
 
@@ -120,22 +119,31 @@ pub struct Groupcache {
     peers: RwLock<Vec<Peer>>,
     ring: Arc<RwLock<HashRing<VNode>>>,
     cache: Cache<Key, Value>,
-    transport: Box<dyn Transport>,
+    loader: Box<dyn ValueLoader>,
 }
 
-type Value = Vec<u8>;
-type Key = String;
+pub type Value = Vec<u8>;
+pub type Key = String;
 
 #[async_trait]
 impl groupcache_server::Groupcache for Groupcache {
     async fn get(&self, request: Request<groupcache_pb::groupcache_pb::GetRequest>) ->
-    std::result::Result<tonic::Response<groupcache_pb::groupcache_pb::GetResponse>, Status> {
+        std::result::Result<tonic::Response<groupcache_pb::groupcache_pb::GetResponse>, Status> {
+
         let payload = request.into_inner();
-        let v = format!("{}-v", payload.key.clone()).into_bytes();
         info!("get key:{}", payload.key);
-        Ok(tonic::Response::new(groupcache_pb::groupcache_pb::GetResponse {
-            value: Some(v)
-        }))
+
+        match self.get_locally(&payload.key).await {
+            Ok(value) => {
+                Ok(tonic::Response::new(groupcache_pb::groupcache_pb::GetResponse {
+                    value: Some(value)
+                }))
+            }
+            Err(err) => {
+                error!("Error during computing for key: {}, err: {}", payload.key, err);
+                Err(Status::internal(err.to_string()))
+            }
+        }
     }
 }
 
@@ -155,8 +163,16 @@ pub async fn start_grpc_server(
 }
 
 
+#[async_trait]
+pub trait ValueLoader: Send + Sync {
+    async fn load(&self, key: &Key) -> std::result::Result<Value, Box<dyn std::error::Error + Send + Sync + 'static>>;
+
+}
+
+
 impl Groupcache {
-    pub fn new(me: Peer, transport: Box<dyn Transport>) -> Self {
+    pub fn new(me: Peer,
+               loader: Box<dyn ValueLoader>) -> Self {
         let ring = {
             let mut ring = HashRing::new();
             let vnodes = VNode::vnodes_for_peer(&me, VNODES_PER_PEER);
@@ -175,7 +191,7 @@ impl Groupcache {
             peers,
             ring,
             cache,
-            transport,
+            loader,
         }
     }
 
@@ -195,20 +211,28 @@ impl Groupcache {
         };
         log::info!("peer {:?} getting from peer: {:?}", self.me.socket, peer.socket);
 
-        let value = if peer == self.me {
-            let value = vec![1, 2, 3];
-            self.cache.insert(key.clone(), value.clone());
-            value
-        } else {
-            // todo: call grpc endpoint
-            // let GetResponse { key, value } = self.transport.get_rpc(&peer, &GetRequest {
-            //     key: key.to_string(),
-            // }).await.context("failed to retrieve kv from peer")?;
+        let value =
+            if peer == self.me {
+                // todo: implement single-flight.
+                let value = self.get_locally(key).await?;
+                self.cache.insert(key.clone(), value.clone());
+                value
+            } else {
 
-            vec![1, 2, 3]
-        };
+                // todo: call grpc endpoint
+                // let GetResponse { key, value } = self.transport.get_rpc(&peer, &GetRequest {
+                //     key: key.to_string(),
+                // }).await.context("failed to retrieve kv from peer")?;
+
+                vec![1, 2, 3]
+            };
 
         Ok(value)
+    }
+
+    async fn get_locally(&self, key: &Key) -> Result<Value> {
+        let v = self.loader.load(key).await.map_err(anyhow::Error::msg)?;
+        Ok(v)
     }
 
     fn add_peer(&self, peer: Peer) -> Result<()> {
