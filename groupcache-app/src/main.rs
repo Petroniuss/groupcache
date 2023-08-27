@@ -10,7 +10,7 @@ use axum::extract::{Path, State};
 use axum::{Json, Router};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{get, put};
 use serde::Serialize;
 use tracing::{info, log};
 use groupcache::{GetResponseFailure, Groupcache, Key, Peer, start_grpc_server, Value};
@@ -20,7 +20,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let port = env::var("PORT")
-        .unwrap_or("3000".to_string())
+        .unwrap_or_else(|_| "3000".to_string())
         .parse::<u16>()?;
 
 
@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
 
     // todo: it should be possible to leave it up to the user to run groupcache on the same port as axum
     //      tldr; multiplex traffic to both application axum web service and groupcache.
-    let res =
+    let _res =
         tokio::try_join!(run_groupcache(groupcache.clone()), axum(axum_port, groupcache.clone()))?;
 
     Ok(())

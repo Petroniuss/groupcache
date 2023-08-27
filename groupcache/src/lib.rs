@@ -5,18 +5,18 @@ extern crate quick_cache;
 
 use std::collections::HashMap;
 use groupcache_pb::groupcache_pb::{GetRequest, groupcache_server};
-use std::error::Error;
-use std::future::Future;
+
+
 use std::net::SocketAddr;
-use std::str::FromStr;
+
 use std::sync::{Arc, RwLock};
 use serde::{Deserialize, Serialize};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use axum::response::IntoResponse;
+
 use hashring::HashRing;
 use tracing::{info, log};
-use tracing::log::{error, log};
+use tracing::log::{error};
 use quick_cache::sync::Cache;
 use tonic::{IntoRequest, Request, Status};
 use tonic::transport::Channel;
@@ -49,15 +49,15 @@ impl VNode {
     fn vnodes_for_peer(peer: &Peer, num: i32) -> Vec<VNode> {
         let mut vnodes = Vec::new();
         for i in 0..num {
-            let vnode = VNode::new(peer.socket.clone(), i as usize);
+            let vnode = VNode::new(peer.socket, i as usize);
             vnodes.push(vnode);
         }
         vnodes
     }
 
-    fn to_peer(&self) -> Peer {
-        return Peer {
-            socket: self.addr.clone()
+    fn as_peer(&self) -> Peer {
+        Peer {
+            socket: self.addr
         }
     }
 }
@@ -79,7 +79,7 @@ impl SharedPeerState {
         let vnode = self.ring.get(key)
             .context("ring can't be empty")?;
 
-        Ok(vnode.to_peer())
+        Ok(vnode.as_peer())
     }
 
     fn client_for_peer(&self, peer: &Peer) -> Result<PeerClient> {
@@ -142,7 +142,7 @@ impl groupcache_server::Groupcache for Groupcache {
 pub async fn start_grpc_server(
     groupcache: Arc<Groupcache>,
 ) -> Result<()> {
-    let addr = groupcache.me.socket.clone();
+    let addr = groupcache.me.socket;
     info!("Groupcache server listening on {}", addr);
 
     tonic::transport::Server::builder()
@@ -197,11 +197,7 @@ impl Groupcache {
             let lock = self.guarded_shared_state
                 .read().unwrap();
 
-            lock
-                .ring
-                .get(&key)
-                .context("no node found")?
-                .to_peer()
+            lock.peer_for_key(key)?
         };
         log::info!("peer {:?} getting from peer: {:?}", self.me.socket, peer.socket);
 
@@ -225,9 +221,9 @@ impl Groupcache {
                 }.into_request()).await?;
 
                 let get_response = response.into_inner();
-                let value = get_response.value.unwrap();
+                
 
-                value
+                get_response.value.unwrap()
             };
 
         Ok(value)
@@ -267,7 +263,7 @@ impl Groupcache {
         // todo: it should be up to the user to define whether we want to use http or https?
         // but then we'd also need to give ability to set up certs etc...
         let peer_server_address =
-            format!("http://{}", peer.socket.clone().to_string());
+            format!("http://{}", peer.socket.clone());
 
         let client = GroupcacheClient::connect(peer_server_address).await?;
 
@@ -283,7 +279,7 @@ impl Groupcache {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn it_works() {}
