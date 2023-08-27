@@ -6,5 +6,7 @@ members= [
 ]
 
 
-[workspace.dependencies]
-cargo-husky = { version = "1.5.0", default-features = false, features = ["precommit-hook", "run-cargo-test", "run-cargo-clippy"] }
+[workspace.dependencies.cargo-husky]
+version = "1.5.0"
+default-features = false
+features = ["precommit-hook", "run-cargo-test", "run-cargo-clippy", "run-cargo-fmt", "run-for-all"]
