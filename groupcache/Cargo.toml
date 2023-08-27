@@ -20,3 +20,6 @@ quick_cache = "0.3.0"
 
 # to be removed:
 reqwest = { version = "0.11.18", features = ["json"] }
+
+[dev-dependencies]
+cargo-husky = { workspace = true }
