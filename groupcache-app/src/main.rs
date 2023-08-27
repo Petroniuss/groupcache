@@ -10,7 +10,7 @@ use axum::extract::{Path, State};
 use axum::{Json, Router};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use serde::Serialize;
 use tracing::{info, log};
 use groupcache::{GetResponseFailure, Groupcache, Key, Peer, start_grpc_server, Value};
@@ -44,7 +44,7 @@ async fn axum(port: u16, groupcache: Arc<Groupcache>) -> Result<()> {
     let app = Router::new()
         .route("/root", get(root))
         .route("/get/:key_id", get(get_key_handler))
-        .route("/peer", post(add_peer_handler))
+        .route("/peer/:peer_addr", put(add_peer_handler))
         .with_state(groupcache);
 
     axum::Server::bind(&addr)
@@ -131,12 +131,12 @@ async fn get_key_handler(
 async fn add_peer_handler(
     Path(peer_address): Path<String>,
     State(groupcache): State<Arc<Groupcache>>,
-) -> (StatusCode) {
+) -> StatusCode {
     let Ok(socket) = peer_address.parse::<SocketAddr>() else {
         return StatusCode::BAD_REQUEST;
     };
 
-    let Ok(_) = groupcache.add_peer(Peer { socket }) else {
+    let Ok(_) = groupcache.add_peer(Peer { socket }).await else {
         return StatusCode::INTERNAL_SERVER_ERROR;
     };
 

@@ -3,6 +3,7 @@ extern crate anyhow;
 extern crate async_trait;
 extern crate quick_cache;
 
+use std::collections::HashMap;
 use groupcache_pb::groupcache_pb::groupcache_server;
 use std::error::Error;
 use std::future::Future;
@@ -10,9 +11,8 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use serde::{Deserialize, Serialize};
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
-use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use hashring::HashRing;
@@ -20,9 +20,13 @@ use tracing::{info, log};
 use tracing::log::{error, log};
 use quick_cache::sync::Cache;
 use tonic::{IntoRequest, Request, Status};
+use tonic::transport::Channel;
+use groupcache_pb::groupcache_pb::groupcache_client::GroupcacheClient;
 
 
 static VNODES_PER_PEER: i32 = 10;
+
+type PeerClient = GroupcacheClient<Channel>;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Peer {
@@ -50,6 +54,12 @@ impl VNode {
             vnodes.push(vnode);
         }
         vnodes
+    }
+
+    fn vnode_to_peer(&self) -> Peer {
+        return Peer {
+            socket: self.addr.clone()
+        }
     }
 }
 
@@ -114,10 +124,45 @@ trait Retriever {
     async fn retrieve(&self, key: &str) -> Result<String>;
 }
 
+struct SharedPeerState {
+    peers: HashMap<Peer, ConnectedPeer>,
+    ring: HashRing<VNode>,
+}
+
+impl SharedPeerState {
+    fn peer_for_key(&self, key: &Key) -> Result<PeerClient> {
+        let vnode = self.ring.get(key)
+            .context("ring can't be empty")?;
+
+        self.peer_for_vnode(vnode)
+    }
+    fn peer_for_vnode(&self, vnode: &VNode) -> Result<PeerClient> {
+        let peer = &vnode.vnode_to_peer();
+        match self.peers.get(peer) {
+            Some(peer) => { Ok(peer.client.clone()) }
+            None => Err(anyhow!("peer not found"))
+        }
+    }
+
+    fn add_peer(&mut self, peer: &Peer, peer_client: PeerClient) {
+        let vnodes = VNode::vnodes_for_peer(&peer, VNODES_PER_PEER);
+        for vnode in vnodes {
+            self.ring.add(vnode);
+        }
+    }
+
+    fn contains_peer(&self, peer: &Peer) -> bool {
+        self.peers.contains_key(peer)
+    }
+}
+
+struct ConnectedPeer {
+    client: PeerClient,
+}
+
 pub struct Groupcache {
     me: Peer,
-    peers: RwLock<Vec<Peer>>,
-    ring: Arc<RwLock<HashRing<VNode>>>,
+    guarded_shared_state: Arc<RwLock<SharedPeerState>>,
     cache: Cache<Key, Value>,
     loader: Box<dyn ValueLoader>,
 }
@@ -128,12 +173,11 @@ pub type Key = String;
 #[async_trait]
 impl groupcache_server::Groupcache for Groupcache {
     async fn get(&self, request: Request<groupcache_pb::groupcache_pb::GetRequest>) ->
-        std::result::Result<tonic::Response<groupcache_pb::groupcache_pb::GetResponse>, Status> {
-
+    std::result::Result<tonic::Response<groupcache_pb::groupcache_pb::GetResponse>, Status> {
         let payload = request.into_inner();
         info!("get key:{}", payload.key);
 
-        match self.get_locally(&payload.key).await {
+        match self.load_locally(&payload.key).await {
             Ok(value) => {
                 Ok(tonic::Response::new(groupcache_pb::groupcache_pb::GetResponse {
                     value: Some(value)
@@ -166,7 +210,6 @@ pub async fn start_grpc_server(
 #[async_trait]
 pub trait ValueLoader: Send + Sync {
     async fn load(&self, key: &Key) -> std::result::Result<Value, Box<dyn std::error::Error + Send + Sync + 'static>>;
-
 }
 
 
@@ -180,16 +223,20 @@ impl Groupcache {
                 ring.add(vnode)
             }
 
-            Arc::new(RwLock::new(ring))
+            ring
         };
 
         let cache = Cache::new(1_000_000);
-        let peers = RwLock::new(vec![me.clone()]);
+        let peers = HashMap::new();
+
+        let guarded_shared_state = Arc::new(RwLock::new(SharedPeerState {
+            peers,
+            ring,
+        }));
 
         Self {
             me,
-            peers,
-            ring,
+            guarded_shared_state,
             cache,
             loader,
         }
@@ -201,10 +248,11 @@ impl Groupcache {
         }
 
         let peer = {
-            let lock = self.ring.read()
-                .unwrap();
+            let lock = self.guarded_shared_state
+                .read().unwrap();
 
             let vnode = lock
+                .ring
                 .get(&key)
                 .context("no node found")?;
             Peer { socket: vnode.addr.clone() }
@@ -214,10 +262,15 @@ impl Groupcache {
         let value =
             if peer == self.me {
                 // todo: implement single-flight.
-                let value = self.get_locally(key).await?;
+                // question: should be single-flight be implemented only on a local get
+                // or also on remote gets?
+                // Also for remote gets so that we don't incur unnecessary network overhead.
+                let value = self.load_locally(key).await?;
                 self.cache.insert(key.clone(), value.clone());
                 value
             } else {
+                // need a client per peer -> should be created during adding a peer right?
+
 
                 // todo: call grpc endpoint
                 // let GetResponse { key, value } = self.transport.get_rpc(&peer, &GetRequest {
@@ -230,23 +283,47 @@ impl Groupcache {
         Ok(value)
     }
 
-    async fn get_locally(&self, key: &Key) -> Result<Value> {
+    async fn load_locally(&self, key: &Key) -> Result<Value> {
         let v = self.loader.load(key).await.map_err(anyhow::Error::msg)?;
         Ok(v)
     }
 
-    pub fn add_peer(&self, peer: Peer) -> Result<()> {
-        if !self.peers.read().unwrap().contains(&peer) {
-            self.peers.write().unwrap().push(peer.clone());
-            let vnodes = VNode::vnodes_for_peer(&peer, VNODES_PER_PEER);
-            let mut lock = self.ring.write().unwrap();
-            for vnode in vnodes {
-                lock.add(vnode);
-            }
-        } else {
-            bail!("peer already exists");
+    // todo: interesting how to have fast access to state that's often read but rarely updated:
+    // Simpler option:
+    //  - use RwLock
+    // Other options:
+    // https://www.reddit.com/r/rust/comments/vcaabk/rwlock_vs_mutex_please_tell_me_like_im_5/
+    // https://www.reddit.com/r/rust/comments/vb1p6i/getting_both_a_mutable_and_immutable_reference_to/
+    // https://youtu.be/s19G6n0UjsM?t=1472
+    // - have a channel with updates, duplicate state to all readers and update state from channel in a non-blocking way.
+    // https://crates.io/crates/arc-swap/1.6.0
+
+    // todo: implement batch api so that one can more efficiently add a number of peers
+    pub async fn add_peer(&self, peer: Peer) -> Result<()> {
+        let contains_peer = {
+            let read_lock = self.guarded_shared_state
+                .read()
+                .unwrap();
+
+            read_lock.contains_peer(&peer)
+        };
+
+        if contains_peer {
+            return Ok(())
         }
 
+        // todo: it should be up to the user to define whether we want to use http or https?
+        // but then we'd also need to give ability to set up certs etc...
+        let peer_server_address =
+            format!("http://{}", peer.socket.clone().to_string());
+
+        let client = GroupcacheClient::connect(peer_server_address).await?;
+
+        let mut write_lock = self.guarded_shared_state
+            .write()
+            .unwrap();
+
+        write_lock.add_peer(&peer, client);
         Ok(())
     }
 }
