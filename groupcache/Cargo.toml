@@ -14,12 +14,8 @@ tokio = { version = "1.12.0", features = ["full"] }
 serde = { version = "1.0.130", features = ["derive"] }
 serde_json = "1.0.68"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 async-trait = "0.1.72"
 quick_cache = "0.3.0"
-
-# to be removed:
-reqwest = { version = "0.11.18", features = ["json"] }
 
 [dev-dependencies]
 cargo-husky = { workspace = true }
