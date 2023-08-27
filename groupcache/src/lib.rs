@@ -235,7 +235,7 @@ impl Groupcache {
         Ok(v)
     }
 
-    fn add_peer(&self, peer: Peer) -> Result<()> {
+    pub fn add_peer(&self, peer: Peer) -> Result<()> {
         if !self.peers.read().unwrap().contains(&peer) {
             self.peers.write().unwrap().push(peer.clone());
             let vnodes = VNode::vnodes_for_peer(&peer, VNODES_PER_PEER);
@@ -249,21 +249,6 @@ impl Groupcache {
 
         Ok(())
     }
-}
-
-async fn add_peer_rpc_handler(
-    Path(peer_address): Path<String>,
-    State(groupcache): State<Arc<Groupcache>>,
-) -> (StatusCode) {
-    let Ok(socket) = peer_address.parse::<SocketAddr>() else {
-        return StatusCode::BAD_REQUEST;
-    };
-
-    let Ok(_) = groupcache.add_peer(Peer { socket }) else {
-        return StatusCode::INTERNAL_SERVER_ERROR;
-    };
-
-    StatusCode::OK
 }
 
 
