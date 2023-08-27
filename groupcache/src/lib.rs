@@ -5,14 +5,11 @@ extern crate serde;
 
 use groupcache_pb::groupcache_pb::{groupcache_server, GetRequest};
 use std::collections::HashMap;
-
 use std::net::SocketAddr;
-
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
-
 use groupcache_pb::groupcache_pb::groupcache_client::GroupcacheClient;
 use hashring::HashRing;
 use quick_cache::sync::Cache;
@@ -22,6 +19,7 @@ use tracing::log::error;
 use tracing::{info, log};
 
 static VNODES_PER_PEER: i32 = 10;
+
 
 type PeerClient = GroupcacheClient<Channel>;
 
@@ -45,7 +43,10 @@ impl VNode {
         let mut vnodes = Vec::new();
         for i in 0..num {
             let vnode = VNode::new(peer.socket, i as usize);
-            vnodes.push(vnode);
+
+            vnodes.push(
+                vnode);
+
         }
         vnodes
     }
