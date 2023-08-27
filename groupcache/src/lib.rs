@@ -56,7 +56,7 @@ impl VNode {
         vnodes
     }
 
-    fn vnode_to_peer(&self) -> Peer {
+    fn to_peer(&self) -> Peer {
         return Peer {
             socket: self.addr.clone()
         }
@@ -130,25 +130,27 @@ struct SharedPeerState {
 }
 
 impl SharedPeerState {
-    fn peer_for_key(&self, key: &Key) -> Result<PeerClient> {
+
+    fn peer_for_key(&self, key: &Key) -> Result<Peer> {
         let vnode = self.ring.get(key)
             .context("ring can't be empty")?;
 
-        self.peer_for_vnode(vnode)
+        Ok(vnode.to_peer())
     }
-    fn peer_for_vnode(&self, vnode: &VNode) -> Result<PeerClient> {
-        let peer = &vnode.vnode_to_peer();
+
+    fn client_for_peer(&self, peer: &Peer) -> Result<PeerClient> {
         match self.peers.get(peer) {
             Some(peer) => { Ok(peer.client.clone()) }
             None => Err(anyhow!("peer not found"))
         }
     }
 
-    fn add_peer(&mut self, peer: &Peer, peer_client: PeerClient) {
+    fn add_peer(&mut self, peer: Peer, client: PeerClient) {
         let vnodes = VNode::vnodes_for_peer(&peer, VNODES_PER_PEER);
         for vnode in vnodes {
             self.ring.add(vnode);
         }
+        self.peers.insert(peer, ConnectedPeer { client });
     }
 
     fn contains_peer(&self, peer: &Peer) -> bool {
@@ -251,33 +253,37 @@ impl Groupcache {
             let lock = self.guarded_shared_state
                 .read().unwrap();
 
-            let vnode = lock
+            lock
                 .ring
                 .get(&key)
-                .context("no node found")?;
-            Peer { socket: vnode.addr.clone() }
+                .context("no node found")?
+                .to_peer()
         };
         log::info!("peer {:?} getting from peer: {:?}", self.me.socket, peer.socket);
 
+        // todo: implement single-flight.
+        // question: should be single-flight be implemented only on a local get
+        // or also on remote gets?
+        // Also for remote gets so that we don't incur unnecessary network overhead.
         let value =
             if peer == self.me {
-                // todo: implement single-flight.
-                // question: should be single-flight be implemented only on a local get
-                // or also on remote gets?
-                // Also for remote gets so that we don't incur unnecessary network overhead.
                 let value = self.load_locally(key).await?;
                 self.cache.insert(key.clone(), value.clone());
                 value
             } else {
-                // need a client per peer -> should be created during adding a peer right?
+                let mut client = {
+                    let read_lock = self.guarded_shared_state.read().unwrap();
+                    read_lock.client_for_peer(&peer)?
+                };
 
+                let response = client.get(GetRequest {
+                    key: key.clone(),
+                }.into_request()).await?;
 
-                // todo: call grpc endpoint
-                // let GetResponse { key, value } = self.transport.get_rpc(&peer, &GetRequest {
-                //     key: key.to_string(),
-                // }).await.context("failed to retrieve kv from peer")?;
+                let get_response = response.into_inner();
 
-                vec![1, 2, 3]
+                Ok(get_response.value)
+
             };
 
         Ok(value)
@@ -323,7 +329,7 @@ impl Groupcache {
             .write()
             .unwrap();
 
-        write_lock.add_peer(&peer, client);
+        write_lock.add_peer(peer, client);
         Ok(())
     }
 }
