@@ -6,7 +6,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use axum::{Json, Router};
-use groupcache::{start_grpc_server, GetResponseFailure, Groupcache, Key, Peer, Value};
+use groupcache::{start_grpc_server, GetResponseFailure, Groupcache, Key, Peer};
 use serde::Serialize;
 use std::env;
 use std::error::Error;
@@ -14,6 +14,27 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, log};
+
+#[derive(Clone)]
+struct Value {
+    v: String
+}
+
+impl Into<Vec<u8>> for Value {
+    fn into(self) -> Vec<u8> {
+        self.v.into_bytes()
+    }
+}
+
+impl From<Vec<u8>> for Value {
+    fn from(value: Vec<u8>) -> Self {
+        Value {
+            v: String::from_utf8(value).unwrap()
+        }
+    }
+
+}
+
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,6 +47,11 @@ async fn main() -> Result<()> {
     let groupcache_port = port;
     let axum_port = port + 5000;
 
+    // todo: profile application
+    // https://fasterthanli.me/articles/request-coalescing-in-async-rust
+
+    // todo: prepare performance test for groupcache
+
     let groupcache = configure_groupcache(groupcache_port).await?;
 
     // todo: it should be possible to leave it up to the user to run groupcache on the same port as axum
@@ -35,10 +61,13 @@ async fn main() -> Result<()> {
         axum(axum_port, groupcache.clone())
     )?;
 
+    // todo: it should be possible to retrieve metrics from groupcache
+    // todo: have a separate crate that exports metrics to prometheus
+
     Ok(())
 }
 
-async fn axum(port: u16, groupcache: Arc<Groupcache>) -> Result<()> {
+async fn axum(port: u16, groupcache: Arc<Groupcache<Value>>) -> Result<()> {
     let addr = format!("localhost:{port}")
         .to_socket_addrs()?
         .next()
@@ -62,21 +91,22 @@ struct CacheLoader {}
 
 #[async_trait]
 impl groupcache::ValueLoader for CacheLoader {
+    type Value = Value;
+
     async fn load(
         &self,
         key: &Key,
-    ) -> std::result::Result<Value, Box<dyn Error + Send + Sync + 'static>> {
+    ) -> std::result::Result<Self::Value, Box<dyn Error + Send + Sync + 'static>> {
         use tokio::time::sleep;
         info!("Starting a long computation.. about a 100ms.");
 
         sleep(Duration::from_millis(100)).await;
 
-        let value_str = format!("{}-v", key);
-        Ok(value_str.into_bytes())
+        Ok(Value { v: format!("{}-v", key) })
     }
 }
 
-async fn configure_groupcache(port: u16) -> Result<Arc<Groupcache>> {
+async fn configure_groupcache(port: u16) -> Result<Arc<Groupcache<Value>>> {
     let me = Peer {
         socket: format!("127.0.0.1:{}", port).parse()?,
     };
@@ -84,12 +114,13 @@ async fn configure_groupcache(port: u16) -> Result<Arc<Groupcache>> {
     let loader = CacheLoader {};
 
     // todo: groupcache should be already wrapped within an Arc.
+    // user shouldn't have to do this :)
     let groupcache = Arc::new(Groupcache::new(me, Box::new(loader)));
 
     Ok(groupcache)
 }
 
-async fn run_groupcache(groupcache: Arc<Groupcache>) -> Result<()> {
+async fn run_groupcache(groupcache: Arc<Groupcache<Value>>) -> Result<()> {
     start_grpc_server(groupcache)
         .await
         .context("failed to start server")?;
@@ -105,13 +136,13 @@ struct GetResponse {
 
 async fn get_key_handler(
     Path(key): Path<String>,
-    State(groupcache): State<Arc<Groupcache>>,
+    State(groupcache): State<Arc<Groupcache<Value>>>,
 ) -> Response {
     log::info!("get_rpc_handler, {}!", key);
 
     return match groupcache.get(&key).await {
         Ok(value) => {
-            let value = String::from_utf8(value).unwrap();
+            let value = value.v;
             let response_body = GetResponse { key, value };
             (StatusCode::OK, Json(response_body)).into_response()
         }
@@ -128,7 +159,7 @@ async fn get_key_handler(
 
 async fn add_peer_handler(
     Path(peer_address): Path<String>,
-    State(groupcache): State<Arc<Groupcache>>,
+    State(groupcache): State<Arc<Groupcache<Value>>>,
 ) -> StatusCode {
     let Ok(socket) = peer_address.parse::<SocketAddr>() else {
         return StatusCode::BAD_REQUEST;

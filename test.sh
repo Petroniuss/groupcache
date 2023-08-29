@@ -1,3 +1,4 @@
+export RUST_BACKTRACE=FULl
 cargo build
 
 PORT=3000 ./target/debug/groupcache-app &
@@ -11,7 +12,7 @@ groupcache_two=$!
 
 sleep 1
 
-curl --request PUT -vL \
+curl --request PUT -sL \
     --url 'http://localhost:8000/peer/127.0.0.1:3001'
 
 curl --request PUT -sL \
@@ -41,8 +42,8 @@ curl --request GET -sL \
 time curl --request GET -sL \
     --url 'http://localhost:8000/key/key-1' | jq
 
-time curl --request GET -sL \
-    --url 'http://localhost:8000/root' | jq
+curl --request GET -sL \
+    --url 'http://localhost:8000/root'
 
 
 

@@ -6,19 +6,21 @@ extern crate serde;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use groupcache_pb::groupcache_pb::groupcache_client::GroupcacheClient;
-use groupcache_pb::groupcache_pb::{groupcache_server, GetRequest};
+use groupcache_pb::groupcache_pb::{groupcache_server, GetRequest, GetResponse};
 use hashring::HashRing;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::{error, fmt};
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
+use singleflight_async::SingleFlight;
 use tonic::transport::Channel;
-use tonic::{IntoRequest, Request, Status};
+use tonic::{IntoRequest, Request, Response, Status};
 use tracing::log::error;
 use tracing::{info, log};
 
-static VNODES_PER_PEER: i32 = 10;
+static VNODES_PER_PEER: i32 = 40;
 
 type PeerClient = GroupcacheClient<Channel>;
 
@@ -95,34 +97,36 @@ struct ConnectedPeer {
     client: PeerClient,
 }
 
-pub struct Groupcache {
+pub struct Groupcache<Value: Into<Vec<u8>> + From<Vec<u8>> + Clone> {
     me: Peer,
     guarded_shared_state: Arc<RwLock<SharedPeerState>>,
+    single_flight_group: SingleFlight<Result<Value, OpaqueError>>,
     cache: Cache<Key, Value>,
-    loader: Box<dyn ValueLoader>,
+    loader: Box<dyn ValueLoader<Value=Value>>,
 }
 
-pub type Value = Vec<u8>;
+// hmm we may want to instead return user-defined type
+// but we'd need to be able to serialize that type to bytes and from bytes.
+// pub type Value = Vec<u8>;
 pub type Key = String;
 
 #[async_trait]
-impl groupcache_server::Groupcache for Groupcache {
+impl <Value: Into<Vec<u8>> + From<Vec<u8>> + Clone + Send + Sync + 'static> groupcache_server::Groupcache for Groupcache<Value> {
     async fn get(
         &self,
         request: Request<GetRequest>,
-    ) -> std::result::Result<tonic::Response<groupcache_pb::groupcache_pb::GetResponse>, Status>
+    ) -> std::result::Result<Response<GetResponse>, Status>
     {
-        // simply call getter
         let payload = request.into_inner();
         info!("get key:{}", payload.key);
 
         match self.get(&payload.key).await {
-            Ok(value) => Ok(tonic::Response::new(
-                groupcache_pb::groupcache_pb::GetResponse { value: Some(value) },
+            Ok(value) => Ok(Response::new(
+                GetResponse { value: Some(value.into()) },
             )),
             Err(err) => {
                 error!(
-                    "Error during computing for key: {}, err: {}",
+                    "Error during computing value for key: {}, err: {}",
                     payload.key, err
                 );
                 Err(Status::internal(err.to_string()))
@@ -131,7 +135,7 @@ impl groupcache_server::Groupcache for Groupcache {
     }
 }
 
-pub async fn start_grpc_server(groupcache: Arc<Groupcache>) -> Result<()> {
+pub async fn start_grpc_server<Value: Into<Vec<u8>> + From<Vec<u8>> + Clone + Send + Sync + 'static>(groupcache: Arc<Groupcache<Value>>) -> Result<()> {
     let addr = groupcache.me.socket;
     info!("Groupcache server listening on {}", addr);
 
@@ -145,14 +149,16 @@ pub async fn start_grpc_server(groupcache: Arc<Groupcache>) -> Result<()> {
 
 #[async_trait]
 pub trait ValueLoader: Send + Sync {
+    type Value: Into<Vec<u8>> + From<Vec<u8>> + Clone;
+
     async fn load(
         &self,
         key: &Key,
-    ) -> std::result::Result<Value, Box<dyn std::error::Error + Send + Sync + 'static>>;
+    ) -> std::result::Result<Self::Value, Box<dyn std::error::Error + Send + Sync + 'static>>;
 }
 
-impl Groupcache {
-    pub fn new(me: Peer, loader: Box<dyn ValueLoader>) -> Self {
+impl <Value: Into<Vec<u8>> + From<Vec<u8>> + Clone + Send + Sync + 'static> Groupcache<Value> {
+    pub fn new(me: Peer, loader: Box<dyn ValueLoader<Value=Value>>) -> Self {
         let ring = {
             let mut ring = HashRing::new();
             let vnodes = VNode::vnodes_for_peer(&me, VNODES_PER_PEER);
@@ -171,6 +177,7 @@ impl Groupcache {
         Self {
             me,
             guarded_shared_state,
+            single_flight_group: SingleFlight::new(),
             cache,
             loader,
         }
@@ -196,23 +203,31 @@ impl Groupcache {
         // question: should be single-flight be implemented only on a local get
         // or also on remote gets?
         // Also for remote gets so that we don't incur unnecessary network overhead.
+        // todo: Result<Value> needs to be cloneable - not sure if error is cloneable.
+        let value = self.single_flight_group.work(key, || async {
+            self.error_wrapped_dedup(key, peer).await
+        }).await?;
+
+        Ok(value)
+    }
+
+    async fn error_wrapped_dedup(&self, key: &Key, peer: Peer) -> Result<Value, OpaqueError> {
+        let result = self.dedup_get(key, peer).await.map_err(|e|
+            OpaqueError{
+                display: e.root_cause().to_string(),
+                debug: e.to_string()
+        });
+        result
+    }
+
+    async fn dedup_get(&self, key: &Key, peer: Peer) -> Result<Value> {
         let value = if peer == self.me {
             let value = self.load_locally(key).await?;
             self.cache.insert(key.clone(), value.clone());
             value
         } else {
-            let mut client = {
-                let read_lock = self.guarded_shared_state.read().unwrap();
-                read_lock.client_for_peer(&peer)?
-            };
-
-            let response = client
-                .get(GetRequest { key: key.clone() }.into_request())
-                .await?;
-
-            let get_response = response.into_inner();
-
-            get_response.value.unwrap()
+            let value = self.load_remotely(key, peer).await?;
+            value
         };
 
         Ok(value)
@@ -221,6 +236,23 @@ impl Groupcache {
     async fn load_locally(&self, key: &Key) -> Result<Value> {
         let v = self.loader.load(key).await.map_err(anyhow::Error::msg)?;
         Ok(v)
+    }
+
+    async fn load_remotely(&self, key: &Key, peer: Peer) -> Result<Value> {
+        let mut client = {
+            let read_lock = self.guarded_shared_state.read().unwrap();
+            read_lock.client_for_peer(&peer)?
+        };
+
+        let response = client
+            .get(GetRequest { key: key.clone() }.into_request())
+            .await?;
+
+        let get_response = response.into_inner();
+        let bytes = get_response.value.unwrap();
+        let value = Into::into(bytes);
+
+        Ok(value)
     }
 
     // todo: interesting how to have fast access to state that's often read but rarely updated:
@@ -255,6 +287,24 @@ impl Groupcache {
 
         write_lock.add_peer(peer, client);
         Ok(())
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct OpaqueError { display: String, debug: String, }
+impl fmt::Debug for OpaqueError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self.debug) }
+}
+impl fmt::Display for OpaqueError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.display.fmt(f) }
+}
+impl error::Error for OpaqueError {}
+impl OpaqueError {
+    pub fn new<E>(e: E) -> Self
+        where
+            E: fmt::Display + fmt::Debug,
+    {
+        OpaqueError { display: format!("{}", e), debug: format!("{:#?}", e), }
     }
 }
 
