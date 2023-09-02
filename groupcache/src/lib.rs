@@ -111,9 +111,7 @@ pub struct Groupcache<Value: ValueT> {
 pub type Key = String;
 
 #[async_trait]
-impl<Value: ValueT>
-    groupcache_server::Groupcache for Groupcache<Value>
-{
+impl<Value: ValueT> groupcache_server::Groupcache for Groupcache<Value> {
     async fn get(
         &self,
         request: Request<GetRequest>,
@@ -125,29 +123,22 @@ impl<Value: ValueT>
             Ok(value) => {
                 let result = rmp_serde::to_vec(&value);
                 match result {
-                    Ok(bytes) => {
-                        Ok(Response::new(GetResponse {
-                            value: Some(bytes),
-                        }))
-                    }
+                    Ok(bytes) => Ok(Response::new(GetResponse { value: Some(bytes) })),
                     Err(err) => {
-                        error!("Error during computing value for key: {}, err: {}",payload.key, err);
+                        error!(
+                            "Error during computing value for key: {}, err: {}",
+                            payload.key, err
+                        );
                         Err(Status::internal(err.to_string()))
                     }
                 }
-            },
-            Err(err) => {
-                Err(Status::internal(err.to_string()))
             }
+            Err(err) => Err(Status::internal(err.to_string())),
         }
     }
 }
 
-pub async fn start_grpc_server<
-    Value: ValueT,
->(
-    groupcache: Arc<Groupcache<Value>>,
-) -> Result<()> {
+pub async fn start_grpc_server<Value: ValueT>(groupcache: Arc<Groupcache<Value>>) -> Result<()> {
     let addr = groupcache.me.socket;
     info!("Groupcache server listening on {}", addr);
 
@@ -160,8 +151,8 @@ pub async fn start_grpc_server<
 }
 
 // type alias
-pub trait ValueT: Serialize + for <'a> Deserialize<'a> + Clone + Send + Sync + 'static {}
-impl <T: Serialize + for <'a> Deserialize<'a> + Clone + Send + Sync + 'static> ValueT for T {}
+pub trait ValueT: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static {}
+impl<T: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static> ValueT for T {}
 
 #[async_trait]
 pub trait ValueLoader: Send + Sync {
