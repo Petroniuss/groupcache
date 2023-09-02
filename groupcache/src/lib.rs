@@ -10,11 +10,11 @@ use groupcache_pb::groupcache_pb::{groupcache_server, GetRequest, GetResponse};
 use hashring::HashRing;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
+use singleflight_async::SingleFlight;
 use std::collections::HashMap;
-use std::{error, fmt};
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
-use singleflight_async::SingleFlight;
+use std::{error, fmt};
 use tonic::transport::Channel;
 use tonic::{IntoRequest, Request, Response, Status};
 use tracing::log::error;
@@ -97,12 +97,12 @@ struct ConnectedPeer {
     client: PeerClient,
 }
 
-pub struct Groupcache<Value: Into<Vec<u8>> + From<Vec<u8>> + Clone> {
+pub struct Groupcache<Value: ValueT> {
     me: Peer,
     guarded_shared_state: Arc<RwLock<SharedPeerState>>,
     single_flight_group: SingleFlight<Result<Value, OpaqueError>>,
     cache: Cache<Key, Value>,
-    loader: Box<dyn ValueLoader<Value=Value>>,
+    loader: Box<dyn ValueLoader<Value = Value>>,
 }
 
 // hmm we may want to instead return user-defined type
@@ -111,31 +111,43 @@ pub struct Groupcache<Value: Into<Vec<u8>> + From<Vec<u8>> + Clone> {
 pub type Key = String;
 
 #[async_trait]
-impl <Value: Into<Vec<u8>> + From<Vec<u8>> + Clone + Send + Sync + 'static> groupcache_server::Groupcache for Groupcache<Value> {
+impl<Value: ValueT>
+    groupcache_server::Groupcache for Groupcache<Value>
+{
     async fn get(
         &self,
         request: Request<GetRequest>,
-    ) -> std::result::Result<Response<GetResponse>, Status>
-    {
+    ) -> std::result::Result<Response<GetResponse>, Status> {
         let payload = request.into_inner();
         info!("get key:{}", payload.key);
 
         match self.get(&payload.key).await {
-            Ok(value) => Ok(Response::new(
-                GetResponse { value: Some(value.into()) },
-            )),
+            Ok(value) => {
+                let result = rmp_serde::to_vec(&value);
+                match result {
+                    Ok(bytes) => {
+                        Ok(Response::new(GetResponse {
+                            value: Some(bytes),
+                        }))
+                    }
+                    Err(err) => {
+                        error!("Error during computing value for key: {}, err: {}",payload.key, err);
+                        Err(Status::internal(err.to_string()))
+                    }
+                }
+            },
             Err(err) => {
-                error!(
-                    "Error during computing value for key: {}, err: {}",
-                    payload.key, err
-                );
                 Err(Status::internal(err.to_string()))
             }
         }
     }
 }
 
-pub async fn start_grpc_server<Value: Into<Vec<u8>> + From<Vec<u8>> + Clone + Send + Sync + 'static>(groupcache: Arc<Groupcache<Value>>) -> Result<()> {
+pub async fn start_grpc_server<
+    Value: ValueT,
+>(
+    groupcache: Arc<Groupcache<Value>>,
+) -> Result<()> {
     let addr = groupcache.me.socket;
     info!("Groupcache server listening on {}", addr);
 
@@ -147,9 +159,13 @@ pub async fn start_grpc_server<Value: Into<Vec<u8>> + From<Vec<u8>> + Clone + Se
     Ok(())
 }
 
+// type alias
+pub trait ValueT: Serialize + for <'a> Deserialize<'a> + Clone + Send + Sync + 'static {}
+impl <T: Serialize + for <'a> Deserialize<'a> + Clone + Send + Sync + 'static> ValueT for T {}
+
 #[async_trait]
 pub trait ValueLoader: Send + Sync {
-    type Value: Into<Vec<u8>> + From<Vec<u8>> + Clone;
+    type Value: ValueT;
 
     async fn load(
         &self,
@@ -157,8 +173,8 @@ pub trait ValueLoader: Send + Sync {
     ) -> std::result::Result<Self::Value, Box<dyn std::error::Error + Send + Sync + 'static>>;
 }
 
-impl <Value: Into<Vec<u8>> + From<Vec<u8>> + Clone + Send + Sync + 'static> Groupcache<Value> {
-    pub fn new(me: Peer, loader: Box<dyn ValueLoader<Value=Value>>) -> Self {
+impl<Value: ValueT> Groupcache<Value> {
+    pub fn new(me: Peer, loader: Box<dyn ValueLoader<Value = Value>>) -> Self {
         let ring = {
             let mut ring = HashRing::new();
             let vnodes = VNode::vnodes_for_peer(&me, VNODES_PER_PEER);
@@ -204,18 +220,19 @@ impl <Value: Into<Vec<u8>> + From<Vec<u8>> + Clone + Send + Sync + 'static> Grou
         // or also on remote gets?
         // Also for remote gets so that we don't incur unnecessary network overhead.
         // todo: Result<Value> needs to be cloneable - not sure if error is cloneable.
-        let value = self.single_flight_group.work(key, || async {
-            self.error_wrapped_dedup(key, peer).await
-        }).await?;
+        let value = self
+            .single_flight_group
+            .work(key, || async { self.error_wrapped_dedup(key, peer).await })
+            .await?;
 
         Ok(value)
     }
 
+    // todo: I don't like this error wrapping - figure this out - provide simple error type for the user?
     async fn error_wrapped_dedup(&self, key: &Key, peer: Peer) -> Result<Value, OpaqueError> {
-        let result = self.dedup_get(key, peer).await.map_err(|e|
-            OpaqueError{
-                display: e.root_cause().to_string(),
-                debug: e.to_string()
+        let result = self.dedup_get(key, peer).await.map_err(|e| OpaqueError {
+            display: e.root_cause().to_string(),
+            debug: e.to_string(),
         });
         result
     }
@@ -250,7 +267,7 @@ impl <Value: Into<Vec<u8>> + From<Vec<u8>> + Clone + Send + Sync + 'static> Grou
 
         let get_response = response.into_inner();
         let bytes = get_response.value.unwrap();
-        let value = Into::into(bytes);
+        let value = rmp_serde::from_read(bytes.as_slice())?;
 
         Ok(value)
     }
@@ -291,20 +308,30 @@ impl <Value: Into<Vec<u8>> + From<Vec<u8>> + Clone + Send + Sync + 'static> Grou
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct OpaqueError { display: String, debug: String, }
+pub struct OpaqueError {
+    display: String,
+    debug: String,
+}
 impl fmt::Debug for OpaqueError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self.debug) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.debug)
+    }
 }
 impl fmt::Display for OpaqueError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.display.fmt(f) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.display.fmt(f)
+    }
 }
 impl error::Error for OpaqueError {}
 impl OpaqueError {
     pub fn new<E>(e: E) -> Self
-        where
-            E: fmt::Display + fmt::Debug,
+    where
+        E: fmt::Display + fmt::Debug,
     {
-        OpaqueError { display: format!("{}", e), debug: format!("{:#?}", e), }
+        OpaqueError {
+            display: format!("{}", e),
+            debug: format!("{:#?}", e),
+        }
     }
 }
 

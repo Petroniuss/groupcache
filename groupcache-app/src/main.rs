@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use axum::{Json, Router};
 use groupcache::{start_grpc_server, GetResponseFailure, Groupcache, Key, Peer};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::error::Error;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -15,26 +15,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, log};
 
-#[derive(Clone)]
-struct Value {
-    v: String
+#[derive(Clone, Deserialize, Serialize)]
+struct CachedValue {
+    plain_string: String,
 }
-
-impl Into<Vec<u8>> for Value {
-    fn into(self) -> Vec<u8> {
-        self.v.into_bytes()
-    }
-}
-
-impl From<Vec<u8>> for Value {
-    fn from(value: Vec<u8>) -> Self {
-        Value {
-            v: String::from_utf8(value).unwrap()
-        }
-    }
-
-}
-
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -67,7 +51,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn axum(port: u16, groupcache: Arc<Groupcache<Value>>) -> Result<()> {
+async fn axum(port: u16, groupcache: Arc<Groupcache<CachedValue>>) -> Result<()> {
     let addr = format!("localhost:{port}")
         .to_socket_addrs()?
         .next()
@@ -87,11 +71,13 @@ async fn axum(port: u16, groupcache: Arc<Groupcache<Value>>) -> Result<()> {
     Ok(())
 }
 
+// todo: instead require types to be serializable to bytes using serde
+// and MessagePack -> should be good enough for our purposes.
 struct CacheLoader {}
 
 #[async_trait]
 impl groupcache::ValueLoader for CacheLoader {
-    type Value = Value;
+    type Value = CachedValue;
 
     async fn load(
         &self,
@@ -102,11 +88,13 @@ impl groupcache::ValueLoader for CacheLoader {
 
         sleep(Duration::from_millis(100)).await;
 
-        Ok(Value { v: format!("{}-v", key) })
+        Ok(CachedValue {
+            plain_string: format!("{}-v", key),
+        })
     }
 }
 
-async fn configure_groupcache(port: u16) -> Result<Arc<Groupcache<Value>>> {
+async fn configure_groupcache(port: u16) -> Result<Arc<Groupcache<CachedValue>>> {
     let me = Peer {
         socket: format!("127.0.0.1:{}", port).parse()?,
     };
@@ -120,7 +108,7 @@ async fn configure_groupcache(port: u16) -> Result<Arc<Groupcache<Value>>> {
     Ok(groupcache)
 }
 
-async fn run_groupcache(groupcache: Arc<Groupcache<Value>>) -> Result<()> {
+async fn run_groupcache(groupcache: Arc<Groupcache<CachedValue>>) -> Result<()> {
     start_grpc_server(groupcache)
         .await
         .context("failed to start server")?;
@@ -136,13 +124,13 @@ struct GetResponse {
 
 async fn get_key_handler(
     Path(key): Path<String>,
-    State(groupcache): State<Arc<Groupcache<Value>>>,
+    State(groupcache): State<Arc<Groupcache<CachedValue>>>,
 ) -> Response {
     log::info!("get_rpc_handler, {}!", key);
 
     return match groupcache.get(&key).await {
         Ok(value) => {
-            let value = value.v;
+            let value = value.plain_string;
             let response_body = GetResponse { key, value };
             (StatusCode::OK, Json(response_body)).into_response()
         }
@@ -159,7 +147,7 @@ async fn get_key_handler(
 
 async fn add_peer_handler(
     Path(peer_address): Path<String>,
-    State(groupcache): State<Arc<Groupcache<Value>>>,
+    State(groupcache): State<Arc<Groupcache<CachedValue>>>,
 ) -> StatusCode {
     let Ok(socket) = peer_address.parse::<SocketAddr>() else {
         return StatusCode::BAD_REQUEST;
