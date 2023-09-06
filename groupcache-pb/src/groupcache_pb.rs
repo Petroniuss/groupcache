@@ -212,7 +212,7 @@ pub mod groupcache_server {
                             request: tonic::Request<super::GetRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).get(request).await };
+                            let fut = async move { <T as Groupcache>::get(&inner, request).await };
                             Box::pin(fut)
                         }
                     }
