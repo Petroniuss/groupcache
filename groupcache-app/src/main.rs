@@ -86,8 +86,13 @@ impl groupcache::ValueLoader for CacheLoader {
 
         sleep(Duration::from_millis(100)).await;
 
-        let anyhow_error = anyhow!("foo");
-        return Err(anyhow_error.into());
+        return if key.contains("error") {
+            Err(anyhow!("Something bad happened during loading :/").into())
+        } else {
+            Ok(CachedValue {
+                plain_string: "bar".to_string(),
+            })
+        };
     }
 }
 
@@ -130,7 +135,7 @@ async fn get_key_handler(
             (StatusCode::OK, Json(response_body)).into_response()
         }
         Err(error) => {
-            error!("{:?}", error);
+            error!("Received error from groupcache: {}", error.to_string());
             let response_body = GetResponseFailure {
                 key,
                 error: error.to_string(),

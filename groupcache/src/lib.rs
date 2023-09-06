@@ -15,7 +15,6 @@ use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 use tonic::transport::Channel;
 use tonic::{IntoRequest, Request, Response, Status};
-use tracing::log::error;
 use tracing::{info, log};
 
 static VNODES_PER_PEER: i32 = 40;
@@ -137,13 +136,7 @@ impl<Value: ValueBounds> groupcache_server::Groupcache for Groupcache<Value> {
                 let result = rmp_serde::to_vec(&value);
                 match result {
                     Ok(bytes) => Ok(Response::new(GetResponse { value: Some(bytes) })),
-                    Err(err) => {
-                        error!(
-                            "Error during computing value for key: {}, err: {}",
-                            payload.key, err
-                        );
-                        Err(Status::internal(err.to_string()))
-                    }
+                    Err(err) => Err(Status::internal(err.to_string())),
                 }
             }
             Err(err) => Err(Status::internal(err.to_string())),
@@ -262,14 +255,11 @@ impl<Value: ValueBounds> Groupcache<Value> {
         Ok(value)
     }
 
-    async fn load_locally(&self, key: &Key) -> Result<Value> {
-        // todo: map this to a custom error type
-        let v = self
-            .loader
+    async fn load_locally(&self, key: &Key) -> Result<Value, InternalGroupcacheError> {
+        self.loader
             .load(key)
             .await
-            .map_err(InternalGroupcacheError::Loader)?;
-        Ok(v)
+            .map_err(InternalGroupcacheError::Loader)
     }
 
     async fn load_remotely(&self, key: &Key, peer: Peer) -> Result<Value> {

@@ -1,4 +1,4 @@
-export RUST_BACKTRACE=FULl
+export RUST_BACKTRACE=full
 cargo build
 
 PORT=3000 ./target/debug/groupcache-app &
@@ -41,6 +41,9 @@ curl --request GET -sL \
 
 time curl --request GET -sL \
     --url 'http://localhost:8000/key/key-1' | jq
+
+time curl --request GET -sL \
+    --url 'http://localhost:8000/key/error-1' | jq
 
 curl --request GET -sL \
     --url 'http://localhost:8000/root'
