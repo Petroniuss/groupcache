@@ -6,11 +6,10 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use axum::{Json, Router};
-use groupcache::{start_grpc_server, GetResponseFailure, Groupcache, Key, Peer};
+use groupcache::{start_grpc_server, GetResponseFailure, GroupcacheWrapper, Key, Peer};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, log};
 
@@ -50,7 +49,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn axum(port: u16, groupcache: Arc<Groupcache<CachedValue>>) -> Result<()> {
+async fn axum(port: u16, groupcache: GroupcacheWrapper<CachedValue>) -> Result<()> {
     let addr = format!("localhost:{port}")
         .to_socket_addrs()?
         .next()
@@ -92,21 +91,19 @@ impl groupcache::ValueLoader for CacheLoader {
     }
 }
 
-async fn configure_groupcache(port: u16) -> Result<Arc<Groupcache<CachedValue>>> {
+async fn configure_groupcache(port: u16) -> Result<GroupcacheWrapper<CachedValue>> {
     let me = Peer {
         socket: format!("127.0.0.1:{}", port).parse()?,
     };
 
     let loader = CacheLoader {};
 
-    // todo: groupcache should be already wrapped within an Arc.
-    // user shouldn't have to do this :)
-    let groupcache = Arc::new(Groupcache::new(me, Box::new(loader)));
+    let groupcache = GroupcacheWrapper::new(me, Box::new(loader));
 
     Ok(groupcache)
 }
 
-async fn run_groupcache(groupcache: Arc<Groupcache<CachedValue>>) -> Result<()> {
+async fn run_groupcache(groupcache: GroupcacheWrapper<CachedValue>) -> Result<()> {
     start_grpc_server(groupcache)
         .await
         .context("failed to start server")?;
@@ -122,7 +119,7 @@ struct GetResponse {
 
 async fn get_key_handler(
     Path(key): Path<String>,
-    State(groupcache): State<Arc<Groupcache<CachedValue>>>,
+    State(groupcache): State<GroupcacheWrapper<CachedValue>>,
 ) -> Response {
     log::info!("get_rpc_handler, {}!", key);
 
@@ -146,7 +143,7 @@ async fn get_key_handler(
 
 async fn add_peer_handler(
     Path(peer_address): Path<String>,
-    State(groupcache): State<Arc<Groupcache<CachedValue>>>,
+    State(groupcache): State<GroupcacheWrapper<CachedValue>>,
 ) -> StatusCode {
     let Ok(socket) = peer_address.parse::<SocketAddr>() else {
         return StatusCode::BAD_REQUEST;

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use singleflight_async::SingleFlight;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 use tonic::transport::Channel;
 use tonic::{IntoRequest, Request, Response, Status};
@@ -94,12 +95,29 @@ struct ConnectedPeer {
     client: PeerClient,
 }
 
+#[derive(Clone)]
+pub struct GroupcacheWrapper<Value: ValueBounds>(Arc<Groupcache<Value>>);
+
+impl<Value: ValueBounds> Deref for GroupcacheWrapper<Value> {
+    type Target = Groupcache<Value>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<Value: ValueBounds> GroupcacheWrapper<Value> {
+    pub fn new(me: Peer, loader: Box<dyn ValueLoader<Value = Value>>) -> Self {
+        let groupcache = Groupcache::new(me, loader);
+        Self(Arc::new(groupcache))
+    }
+}
+
 pub struct Groupcache<Value: ValueBounds> {
     me: Peer,
     routing_state: Arc<RwLock<RoutingState>>,
     single_flight_group: SingleFlight<Result<Value, DedupedGroupcacheError>>,
     cache: Cache<Key, Value>,
-    // todo: this can use static dispatch I presume.
     loader: Box<dyn ValueLoader<Value = Value>>,
 }
 
@@ -134,13 +152,13 @@ impl<Value: ValueBounds> groupcache_server::Groupcache for Groupcache<Value> {
 }
 
 pub async fn start_grpc_server<Value: ValueBounds>(
-    groupcache: Arc<Groupcache<Value>>,
+    groupcache: GroupcacheWrapper<Value>,
 ) -> Result<()> {
-    let addr = groupcache.me.socket;
+    let addr = groupcache.0.me.socket;
     info!("Groupcache server listening on {}", addr);
 
     tonic::transport::Server::builder()
-        .add_service(groupcache_server::GroupcacheServer::from_arc(groupcache))
+        .add_service(groupcache_server::GroupcacheServer::from_arc(groupcache.0))
         .serve(addr)
         .await?;
 
@@ -148,6 +166,7 @@ pub async fn start_grpc_server<Value: ValueBounds>(
 }
 
 pub trait ValueBounds: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static {}
+
 impl<T: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static> ValueBounds for T {}
 
 #[async_trait]
@@ -174,7 +193,6 @@ impl<Value: ValueBounds> Groupcache<Value> {
 
         let cache = Cache::new(1_000_000);
         let peers = HashMap::new();
-
         let guarded_shared_state = Arc::new(RwLock::new(RoutingState { peers, ring }));
 
         Self {
@@ -308,7 +326,6 @@ impl<Value: ValueBounds> Groupcache<Value> {
 
 #[cfg(test)]
 mod tests {
-
     #[test]
     fn it_works() {}
 }
