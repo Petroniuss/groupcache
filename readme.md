@@ -5,7 +5,8 @@ This is intended to be a port of a popular caching library from Go [groupcache](
 ## todos
 - [x] Groupcache implementation with consistent hashing.
 - [ ] Expose timeouts as a configuration option.
-- [ ] Expose 
+- [ ] Support base http path.
+- [ ] Expose groupcache as axum router that can be nested in other routers.
 - [ ] Expose metrics from the library:
   - [ ] Struct with a bunch of atomic ints.
   - [ ] Implement Prometheus Exporter crate for metrics.
