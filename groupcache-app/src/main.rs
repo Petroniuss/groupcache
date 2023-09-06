@@ -1,5 +1,5 @@
-use anyhow::Context;
 use anyhow::Result;
+use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -9,11 +9,10 @@ use axum::{Json, Router};
 use groupcache::{start_grpc_server, GetResponseFailure, Groupcache, Key, Peer};
 use serde::{Deserialize, Serialize};
 use std::env;
-use std::error::Error;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{info, log};
+use tracing::{error, info, log};
 
 #[derive(Clone, Deserialize, Serialize)]
 struct CachedValue {
@@ -82,15 +81,14 @@ impl groupcache::ValueLoader for CacheLoader {
     async fn load(
         &self,
         key: &Key,
-    ) -> std::result::Result<Self::Value, Box<dyn Error + Send + Sync + 'static>> {
+    ) -> std::result::Result<Self::Value, Box<dyn std::error::Error + Send + Sync + 'static>> {
         use tokio::time::sleep;
-        info!("Starting a long computation.. about a 100ms.");
+        info!("Starting a long computation for {} .. about a 100ms.", key);
 
         sleep(Duration::from_millis(100)).await;
 
-        Ok(CachedValue {
-            plain_string: format!("{}-v", key),
-        })
+        let anyhow_error = anyhow!("foo");
+        return Err(anyhow_error.into());
     }
 }
 
@@ -135,6 +133,7 @@ async fn get_key_handler(
             (StatusCode::OK, Json(response_body)).into_response()
         }
         Err(error) => {
+            error!("{:?}", error);
             let response_body = GetResponseFailure {
                 key,
                 error: error.to_string(),

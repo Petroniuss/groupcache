@@ -1,8 +1,6 @@
-extern crate anyhow;
-extern crate async_trait;
-extern crate quick_cache;
-extern crate serde;
+mod errors;
 
+use crate::errors::{DedupedGroupcacheError, GroupcacheError, InternalGroupcacheError};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use groupcache_pb::groupcache_pb::groupcache_client::GroupcacheClient;
@@ -14,7 +12,6 @@ use singleflight_async::SingleFlight;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
-use std::{error, fmt};
 use tonic::transport::Channel;
 use tonic::{IntoRequest, Request, Response, Status};
 use tracing::log::error;
@@ -61,12 +58,12 @@ pub struct GetResponseFailure {
     pub error: String,
 }
 
-struct SharedPeerState {
+struct RoutingState {
     peers: HashMap<Peer, ConnectedPeer>,
     ring: HashRing<VNode>,
 }
 
-impl SharedPeerState {
+impl RoutingState {
     fn peer_for_key(&self, key: &Key) -> Result<Peer> {
         let vnode = self.ring.get(key).context("ring can't be empty")?;
 
@@ -97,21 +94,19 @@ struct ConnectedPeer {
     client: PeerClient,
 }
 
-pub struct Groupcache<Value: ValueT> {
+pub struct Groupcache<Value: ValueBounds> {
     me: Peer,
-    guarded_shared_state: Arc<RwLock<SharedPeerState>>,
-    single_flight_group: SingleFlight<Result<Value, OpaqueError>>,
+    routing_state: Arc<RwLock<RoutingState>>,
+    single_flight_group: SingleFlight<Result<Value, DedupedGroupcacheError>>,
     cache: Cache<Key, Value>,
+    // todo: this can use static dispatch I presume.
     loader: Box<dyn ValueLoader<Value = Value>>,
 }
 
-// hmm we may want to instead return user-defined type
-// but we'd need to be able to serialize that type to bytes and from bytes.
-// pub type Value = Vec<u8>;
 pub type Key = String;
 
 #[async_trait]
-impl<Value: ValueT> groupcache_server::Groupcache for Groupcache<Value> {
+impl<Value: ValueBounds> groupcache_server::Groupcache for Groupcache<Value> {
     async fn get(
         &self,
         request: Request<GetRequest>,
@@ -138,7 +133,9 @@ impl<Value: ValueT> groupcache_server::Groupcache for Groupcache<Value> {
     }
 }
 
-pub async fn start_grpc_server<Value: ValueT>(groupcache: Arc<Groupcache<Value>>) -> Result<()> {
+pub async fn start_grpc_server<Value: ValueBounds>(
+    groupcache: Arc<Groupcache<Value>>,
+) -> Result<()> {
     let addr = groupcache.me.socket;
     info!("Groupcache server listening on {}", addr);
 
@@ -150,13 +147,12 @@ pub async fn start_grpc_server<Value: ValueT>(groupcache: Arc<Groupcache<Value>>
     Ok(())
 }
 
-// type alias
-pub trait ValueT: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static {}
-impl<T: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static> ValueT for T {}
+pub trait ValueBounds: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static {}
+impl<T: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static> ValueBounds for T {}
 
 #[async_trait]
 pub trait ValueLoader: Send + Sync {
-    type Value: ValueT;
+    type Value: ValueBounds;
 
     async fn load(
         &self,
@@ -164,7 +160,7 @@ pub trait ValueLoader: Send + Sync {
     ) -> std::result::Result<Self::Value, Box<dyn std::error::Error + Send + Sync + 'static>>;
 }
 
-impl<Value: ValueT> Groupcache<Value> {
+impl<Value: ValueBounds> Groupcache<Value> {
     pub fn new(me: Peer, loader: Box<dyn ValueLoader<Value = Value>>) -> Self {
         let ring = {
             let mut ring = HashRing::new();
@@ -179,24 +175,29 @@ impl<Value: ValueT> Groupcache<Value> {
         let cache = Cache::new(1_000_000);
         let peers = HashMap::new();
 
-        let guarded_shared_state = Arc::new(RwLock::new(SharedPeerState { peers, ring }));
+        let guarded_shared_state = Arc::new(RwLock::new(RoutingState { peers, ring }));
 
         Self {
             me,
-            guarded_shared_state,
+            routing_state: guarded_shared_state,
             single_flight_group: SingleFlight::new(),
             cache,
             loader,
         }
     }
 
-    pub async fn get(&self, key: &Key) -> Result<Value> {
+    pub async fn get(&self, key: &Key) -> core::result::Result<Value, GroupcacheError> {
+        Ok(self.get_internal(key).await?)
+    }
+
+    async fn get_internal(&self, key: &Key) -> Result<Value, InternalGroupcacheError> {
         if let Some(value) = self.cache.get(key) {
+            log::info!("peer {:?} serving from cache: {:?}", self.me.socket, key);
             return Ok(value);
         }
 
         let peer = {
-            let lock = self.guarded_shared_state.read().unwrap();
+            let lock = self.routing_state.read().unwrap();
 
             lock.peer_for_key(key)?
         };
@@ -206,11 +207,11 @@ impl<Value: ValueT> Groupcache<Value> {
             peer.socket
         );
 
-        // todo: implement single-flight.
-        // question: should be single-flight be implemented only on a local get
-        // or also on remote gets?
-        // Also for remote gets so that we don't incur unnecessary network overhead.
-        // todo: Result<Value> needs to be cloneable - not sure if error is cloneable.
+        let value = self.get_dedup(key, peer).await?;
+        Ok(value)
+    }
+
+    async fn get_dedup(&self, key: &Key, peer: Peer) -> Result<Value> {
         let value = self
             .single_flight_group
             .work(key, || async { self.error_wrapped_dedup(key, peer).await })
@@ -220,12 +221,14 @@ impl<Value: ValueT> Groupcache<Value> {
     }
 
     // todo: I don't like this error wrapping - figure this out - provide simple error type for the user?
-    async fn error_wrapped_dedup(&self, key: &Key, peer: Peer) -> Result<Value, OpaqueError> {
-        let result = self.dedup_get(key, peer).await.map_err(|e| OpaqueError {
-            display: e.root_cause().to_string(),
-            debug: e.to_string(),
-        });
-        result
+    async fn error_wrapped_dedup(
+        &self,
+        key: &Key,
+        peer: Peer,
+    ) -> Result<Value, DedupedGroupcacheError> {
+        self.dedup_get(key, peer)
+            .await
+            .map_err(|e| DedupedGroupcacheError(Arc::new(e)))
     }
 
     async fn dedup_get(&self, key: &Key, peer: Peer) -> Result<Value> {
@@ -242,13 +245,18 @@ impl<Value: ValueT> Groupcache<Value> {
     }
 
     async fn load_locally(&self, key: &Key) -> Result<Value> {
-        let v = self.loader.load(key).await.map_err(anyhow::Error::msg)?;
+        // todo: map this to a custom error type
+        let v = self
+            .loader
+            .load(key)
+            .await
+            .map_err(InternalGroupcacheError::Loader)?;
         Ok(v)
     }
 
     async fn load_remotely(&self, key: &Key, peer: Peer) -> Result<Value> {
         let mut client = {
-            let read_lock = self.guarded_shared_state.read().unwrap();
+            let read_lock = self.routing_state.read().unwrap();
             read_lock.client_for_peer(&peer)?
         };
 
@@ -276,8 +284,7 @@ impl<Value: ValueT> Groupcache<Value> {
     // todo: implement batch api so that one can more efficiently add a number of peers
     pub async fn add_peer(&self, peer: Peer) -> Result<()> {
         let contains_peer = {
-            let read_lock = self.guarded_shared_state.read().unwrap();
-
+            let read_lock = self.routing_state.read().unwrap();
             read_lock.contains_peer(&peer)
         };
 
@@ -289,40 +296,13 @@ impl<Value: ValueT> Groupcache<Value> {
         // but then we'd also need to give ability to set up certs etc...
         let peer_server_address = format!("http://{}", peer.socket.clone());
 
+        // todo: test what happens when connection is broken between peers.
         let client = GroupcacheClient::connect(peer_server_address).await?;
 
-        let mut write_lock = self.guarded_shared_state.write().unwrap();
+        let mut write_lock = self.routing_state.write().unwrap();
 
         write_lock.add_peer(peer, client);
         Ok(())
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct OpaqueError {
-    display: String,
-    debug: String,
-}
-impl fmt::Debug for OpaqueError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.debug)
-    }
-}
-impl fmt::Display for OpaqueError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display.fmt(f)
-    }
-}
-impl error::Error for OpaqueError {}
-impl OpaqueError {
-    pub fn new<E>(e: E) -> Self
-    where
-        E: fmt::Display + fmt::Debug,
-    {
-        OpaqueError {
-            display: format!("{}", e),
-            debug: format!("{:#?}", e),
-        }
     }
 }
 
