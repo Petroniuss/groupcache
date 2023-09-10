@@ -1,166 +1,57 @@
 mod errors;
+pub mod http;
+mod routing;
 
 use crate::errors::{DedupedGroupcacheError, GroupcacheError, InternalGroupcacheError};
-use anyhow::{anyhow, Context, Result};
+use crate::routing::RoutingState;
+use anyhow::Result;
 use async_trait::async_trait;
 use groupcache_pb::groupcache_pb::groupcache_client::GroupcacheClient;
-use groupcache_pb::groupcache_pb::{groupcache_server, GetRequest, GetResponse};
-use hashring::HashRing;
+use groupcache_pb::groupcache_pb::GetRequest;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use singleflight_async::SingleFlight;
-use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::ops::Deref;
+
 use std::sync::{Arc, RwLock};
 use tonic::transport::Channel;
-use tonic::{IntoRequest, Request, Response, Status};
-use tracing::{info, log};
+use tonic::IntoRequest;
+use tracing::log;
 
-static VNODES_PER_PEER: i32 = 40;
-
-type PeerClient = GroupcacheClient<Channel>;
-
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct Peer {
-    pub socket: SocketAddr,
-}
-
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-struct VNode {
-    id: usize,
-    addr: SocketAddr,
-}
-
-impl VNode {
-    fn new(addr: SocketAddr, id: usize) -> Self {
-        VNode { id, addr }
-    }
-
-    fn vnodes_for_peer(peer: &Peer, num: i32) -> Vec<VNode> {
-        let mut vnodes = Vec::new();
-        for i in 0..num {
-            let vnode = VNode::new(peer.socket, i as usize);
-
-            vnodes.push(vnode);
-        }
-        vnodes
-    }
-
-    fn as_peer(&self) -> Peer {
-        Peer { socket: self.addr }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetResponseFailure {
-    pub key: String,
-    pub error: String,
-}
-
-struct RoutingState {
-    peers: HashMap<Peer, ConnectedPeer>,
-    ring: HashRing<VNode>,
-}
-
-impl RoutingState {
-    fn peer_for_key(&self, key: &Key) -> Result<Peer> {
-        let vnode = self.ring.get(key).context("ring can't be empty")?;
-
-        Ok(vnode.as_peer())
-    }
-
-    fn client_for_peer(&self, peer: &Peer) -> Result<PeerClient> {
-        match self.peers.get(peer) {
-            Some(peer) => Ok(peer.client.clone()),
-            None => Err(anyhow!("peer not found")),
-        }
-    }
-
-    fn add_peer(&mut self, peer: Peer, client: PeerClient) {
-        let vnodes = VNode::vnodes_for_peer(&peer, VNODES_PER_PEER);
-        for vnode in vnodes {
-            self.ring.add(vnode);
-        }
-        self.peers.insert(peer, ConnectedPeer { client });
-    }
-
-    fn contains_peer(&self, peer: &Peer) -> bool {
-        self.peers.contains_key(peer)
-    }
-}
-
-struct ConnectedPeer {
-    client: PeerClient,
-}
-
+// todo: keep public api in lib.rs move implementation to separate file.
 #[derive(Clone)]
 pub struct GroupcacheWrapper<Value: ValueBounds>(Arc<Groupcache<Value>>);
 
-impl<Value: ValueBounds> Deref for GroupcacheWrapper<Value> {
-    type Target = Groupcache<Value>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 impl<Value: ValueBounds> GroupcacheWrapper<Value> {
-    pub fn new(me: Peer, loader: Box<dyn ValueLoader<Value = Value>>) -> Self {
-        let groupcache = Groupcache::new(me, loader);
-        Self(Arc::new(groupcache))
+    pub async fn get(&self, key: &Key) -> core::result::Result<Value, GroupcacheError> {
+        self.0.get(key).await
+    }
+
+    pub async fn add_peer(&self, peer: Peer) -> Result<()> {
+        self.0.add_peer(peer).await
+    }
+
+    pub async fn remove_peer(&self, peer: Peer) -> Result<()> {
+        self.0.remove_peer(peer).await
     }
 }
 
-pub struct Groupcache<Value: ValueBounds> {
-    me: Peer,
-    routing_state: Arc<RwLock<RoutingState>>,
-    single_flight_group: SingleFlight<Result<Value, DedupedGroupcacheError>>,
-    cache: Cache<Key, Value>,
-    loader: Box<dyn ValueLoader<Value = Value>>,
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct Peer {
+    socket: SocketAddr,
 }
 
-pub type Key = String;
-
-#[async_trait]
-impl<Value: ValueBounds> groupcache_server::Groupcache for Groupcache<Value> {
-    async fn get(
-        &self,
-        request: Request<GetRequest>,
-    ) -> std::result::Result<Response<GetResponse>, Status> {
-        let payload = request.into_inner();
-        info!("get key:{}", payload.key);
-
-        match self.get(&payload.key).await {
-            Ok(value) => {
-                let result = rmp_serde::to_vec(&value);
-                match result {
-                    Ok(bytes) => Ok(Response::new(GetResponse { value: Some(bytes) })),
-                    Err(err) => Err(Status::internal(err.to_string())),
-                }
-            }
-            Err(err) => Err(Status::internal(err.to_string())),
-        }
+impl From<SocketAddr> for Peer {
+    fn from(value: SocketAddr) -> Self {
+        Self { socket: value }
     }
-}
-
-pub async fn start_grpc_server<Value: ValueBounds>(
-    groupcache: GroupcacheWrapper<Value>,
-) -> Result<()> {
-    let addr = groupcache.0.me.socket;
-    info!("Groupcache server listening on {}", addr);
-
-    tonic::transport::Server::builder()
-        .add_service(groupcache_server::GroupcacheServer::from_arc(groupcache.0))
-        .serve(addr)
-        .await?;
-
-    Ok(())
 }
 
 pub trait ValueBounds: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static {}
 
 impl<T: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static> ValueBounds for T {}
+
+pub type Key = String;
 
 #[async_trait]
 pub trait ValueLoader: Send + Sync {
@@ -172,26 +63,33 @@ pub trait ValueLoader: Send + Sync {
     ) -> std::result::Result<Self::Value, Box<dyn std::error::Error + Send + Sync + 'static>>;
 }
 
+type PeerClient = GroupcacheClient<Channel>;
+
+impl<Value: ValueBounds> GroupcacheWrapper<Value> {
+    pub fn new(me: Peer, loader: Box<dyn ValueLoader<Value = Value>>) -> Self {
+        let groupcache = Groupcache::new(me, loader);
+        Self(Arc::new(groupcache))
+    }
+}
+
+struct Groupcache<Value: ValueBounds> {
+    me: Peer,
+    routing_state: Arc<RwLock<RoutingState>>,
+    single_flight_group: SingleFlight<Result<Value, DedupedGroupcacheError>>,
+    cache: Cache<Key, Value>,
+    loader: Box<dyn ValueLoader<Value = Value>>,
+}
+
 impl<Value: ValueBounds> Groupcache<Value> {
     pub fn new(me: Peer, loader: Box<dyn ValueLoader<Value = Value>>) -> Self {
-        let ring = {
-            let mut ring = HashRing::new();
-            let vnodes = VNode::vnodes_for_peer(&me, VNODES_PER_PEER);
-            for vnode in vnodes {
-                ring.add(vnode)
-            }
-
-            ring
-        };
-
+        let routing_state = Arc::new(RwLock::new(RoutingState::with_local_peer(me)));
         let cache = Cache::new(1_000_000);
-        let peers = HashMap::new();
-        let guarded_shared_state = Arc::new(RwLock::new(RoutingState { peers, ring }));
+        let single_flight_group = SingleFlight::default();
 
         Self {
             me,
-            routing_state: guarded_shared_state,
-            single_flight_group: SingleFlight::new(),
+            routing_state,
+            single_flight_group,
             cache,
             loader,
         }
@@ -231,7 +129,6 @@ impl<Value: ValueBounds> Groupcache<Value> {
         Ok(value)
     }
 
-    // todo: I don't like this error wrapping - figure this out - provide simple error type for the user?
     async fn error_wrapped_dedup(
         &self,
         key: &Key,
@@ -290,7 +187,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
     // https://crates.io/crates/arc-swap/1.6.0
 
     // todo: implement batch api so that one can more efficiently add a number of peers
-    pub async fn add_peer(&self, peer: Peer) -> Result<()> {
+    async fn add_peer(&self, peer: Peer) -> Result<()> {
         let contains_peer = {
             let read_lock = self.routing_state.read().unwrap();
             read_lock.contains_peer(&peer)
@@ -308,14 +205,24 @@ impl<Value: ValueBounds> Groupcache<Value> {
         let client = GroupcacheClient::connect(peer_server_address).await?;
 
         let mut write_lock = self.routing_state.write().unwrap();
-
         write_lock.add_peer(peer, client);
+
         Ok(())
     }
-}
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {}
+    async fn remove_peer(&self, peer: Peer) -> Result<()> {
+        let contains_peer = {
+            let read_lock = self.routing_state.read().unwrap();
+            read_lock.contains_peer(&peer)
+        };
+
+        if !contains_peer {
+            return Ok(());
+        }
+
+        let mut write_lock = self.routing_state.write().unwrap();
+        write_lock.remove_peer(peer);
+
+        Ok(())
+    }
 }

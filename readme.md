@@ -7,6 +7,11 @@ This is intended to be a port of a popular caching library from Go [groupcache](
 - [ ] Expose timeouts as a configuration option.
 - [ ] Support base http path.
 - [ ] Expose groupcache as axum router that can be nested in other routers.
+- [ ] Integration tests:
+  - [ ] Test hitting key that's located on a different peer.
+  - [ ] Test hitting key that's located on the same peer.
+  - [ ] Test hitting key when loading fails.
+  - [ ] Test what happens when peer is down and then is reconnected.
 - [ ] Expose metrics from the library:
   - [ ] Struct with a bunch of atomic ints.
   - [ ] Implement Prometheus Exporter crate for metrics.

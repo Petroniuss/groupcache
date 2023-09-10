@@ -6,7 +6,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use axum::{Json, Router};
-use groupcache::{start_grpc_server, GetResponseFailure, GroupcacheWrapper, Key, Peer};
+use groupcache::http::start_grpc_server;
+use groupcache::{GroupcacheWrapper, Key};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -16,6 +17,12 @@ use tracing::{error, info, log};
 #[derive(Clone, Deserialize, Serialize)]
 struct CachedValue {
     plain_string: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetResponseFailure {
+    pub key: String,
+    pub error: String,
 }
 
 #[tokio::main]
@@ -97,13 +104,10 @@ impl groupcache::ValueLoader for CacheLoader {
 }
 
 async fn configure_groupcache(port: u16) -> Result<GroupcacheWrapper<CachedValue>> {
-    let me = Peer {
-        socket: format!("127.0.0.1:{}", port).parse()?,
-    };
-
     let loader = CacheLoader {};
+    let socket: SocketAddr = format!("127.0.0.1:{}", port).parse()?;
 
-    let groupcache = GroupcacheWrapper::new(me, Box::new(loader));
+    let groupcache = GroupcacheWrapper::new(socket.into(), Box::new(loader));
 
     Ok(groupcache)
 }
@@ -154,7 +158,7 @@ async fn add_peer_handler(
         return StatusCode::BAD_REQUEST;
     };
 
-    let Ok(_) = groupcache.add_peer(Peer { socket }).await else {
+    let Ok(_) = groupcache.add_peer(socket.into()).await else {
         return StatusCode::INTERNAL_SERVER_ERROR;
     };
 
