@@ -1,22 +1,78 @@
 use anyhow::anyhow;
 use anyhow::Result;
 use async_trait::async_trait;
-
 use groupcache::{GroupcacheWrapper, Key};
-use serde::{Deserialize, Serialize};
-
 use pretty_assertions::assert_eq;
+use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tonic::codegen::tokio_stream;
 use tonic::transport::Server;
 
 #[tokio::test]
-pub async fn test_get_from_single_peer() -> Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+pub async fn test_get_without_any_remote_peers() -> Result<()> {
     let groupcache = {
-        let loader = TestCacheLoader {};
+        let loader = TestCacheLoader {
+            instance_id: "1".to_string(),
+        };
+        let addr: SocketAddr = "127.0.0.1:8080".parse()?;
+        GroupcacheWrapper::<CachedValue>::new(addr.into(), Box::new(loader))
+    };
 
-        let addr = listener.local_addr()?;
+    let key = "K1";
+    let v = groupcache.get(key).await?;
+    assert_eq!("VAL_INSTANCE_1_KEY_K1", v);
+
+    let v = groupcache.get(key).await?;
+    assert_eq!("VAL_INSTANCE_1_KEY_K1", v);
+
+    let key2 = "K_error";
+    let v2 = groupcache.get(key2).await;
+    assert_eq!(true, v2.is_err(), "is error");
+
+    Ok(())
+}
+
+#[tokio::test]
+pub async fn test_get_from_a_remote_peer() -> Result<()> {
+    let groupcache = two_connected_instances().await?;
+
+    async fn assert_lookup(key: &str, groupcache: GroupcacheWrapper<CachedValue>) -> Result<()> {
+        let v = groupcache.get(key).await?;
+        assert_eq!(v.contains(key), true);
+        Ok(())
+    }
+
+    for &key in ["K-b3a", "K-karo", "K-x3d", "K-d42", "W-a1a"].iter() {
+        assert_lookup(key, groupcache.clone()).await?;
+    }
+
+    Ok(())
+}
+
+// todo: test peer disconnecting
+
+// todo: test peer reconnecting
+
+// todo: test peer joining
+
+async fn two_connected_instances() -> Result<GroupcacheWrapper<CachedValue>> {
+    let (instance_one, addr_one) = spawn_groupcache("1".to_string()).await?;
+    let (instance_two, addr_two) = spawn_groupcache("2".to_string()).await?;
+
+    instance_one.add_peer(addr_two.into()).await?;
+    instance_two.add_peer(addr_one.into()).await?;
+
+    Ok(instance_one)
+}
+
+async fn spawn_groupcache(
+    instance_id: String,
+) -> Result<(GroupcacheWrapper<CachedValue>, SocketAddr)> {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr()?;
+    let groupcache = {
+        let loader = TestCacheLoader { instance_id };
+        let addr = addr;
         GroupcacheWrapper::<CachedValue>::new(addr.into(), Box::new(loader))
     };
 
@@ -29,26 +85,14 @@ pub async fn test_get_from_single_peer() -> Result<()> {
             .unwrap();
     });
 
-    let key = "K1";
-    let v = groupcache.get(key).await?;
-    assert_eq!("VAL_K1", v.plain_string);
-
-    let v = groupcache.get(key).await?;
-    assert_eq!("VAL_K1", v.plain_string);
-
-    let key2 = "K_error";
-    let v2 = groupcache.get(key2).await;
-    assert_eq!(true, v2.is_err(), "is error");
-
-    Ok(())
+    Ok((groupcache, addr))
 }
 
-#[derive(Clone, Deserialize, Serialize)]
-struct CachedValue {
-    plain_string: String,
-}
+type CachedValue = String;
 
-struct TestCacheLoader {}
+struct TestCacheLoader {
+    instance_id: String,
+}
 
 #[async_trait]
 impl groupcache::ValueLoader for TestCacheLoader {
@@ -58,12 +102,10 @@ impl groupcache::ValueLoader for TestCacheLoader {
         &self,
         key: &Key,
     ) -> std::result::Result<Self::Value, Box<dyn std::error::Error + Send + Sync + 'static>> {
-        return if key.contains("error") {
-            Err(anyhow!("Something bad happened during loading :/").into())
+        return if !key.contains("error") {
+            Ok(format!("VAL_INSTANCE_{}_KEY_{}", self.instance_id, key))
         } else {
-            Ok(CachedValue {
-                plain_string: format!("VAL_{}", key),
-            })
+            Err(anyhow!("Something bad happened during loading :/").into())
         };
     }
 }
