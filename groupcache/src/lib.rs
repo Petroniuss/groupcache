@@ -8,6 +8,7 @@ use crate::groupcache::Groupcache;
 use anyhow::Result;
 use async_trait::async_trait;
 use groupcache_pb::groupcache_pb::groupcache_client::GroupcacheClient;
+use groupcache_pb::groupcache_pb::groupcache_server::GroupcacheServer;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -27,6 +28,10 @@ impl<Value: ValueBounds> GroupcacheWrapper<Value> {
 
     pub async fn remove_peer(&self, peer: Peer) -> Result<()> {
         self.0.remove_peer(peer).await
+    }
+
+    pub fn server(&self) -> GroupcacheServer<Groupcache<Value>> {
+        GroupcacheServer::from_arc(self.0.clone())
     }
 }
 

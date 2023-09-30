@@ -15,7 +15,7 @@ pub async fn start_grpc_server<Value: ValueBounds>(
     info!("Groupcache server listening on {}", addr);
 
     tonic::transport::Server::builder()
-        .add_service(groupcache_server::GroupcacheServer::from_arc(groupcache.0))
+        .add_service(groupcache.server())
         .serve(addr)
         .await?;
 

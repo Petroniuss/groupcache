@@ -10,7 +10,7 @@ use std::sync::{Arc, RwLock};
 use tonic::IntoRequest;
 use tracing::log;
 
-pub(crate) struct Groupcache<Value: ValueBounds> {
+pub struct Groupcache<Value: ValueBounds> {
     routing_state: Arc<RwLock<RoutingState>>,
     single_flight_group: SingleFlight<Result<Value, DedupedGroupcacheError>>,
     cache: Cache<String, Value>,
@@ -21,6 +21,7 @@ pub(crate) struct Groupcache<Value: ValueBounds> {
 impl<Value: ValueBounds> Groupcache<Value> {
     pub fn new(me: Peer, loader: Box<dyn ValueLoader<Value = Value>>) -> Self {
         let routing_state = Arc::new(RwLock::new(RoutingState::with_local_peer(me)));
+        // todo: cache capacity should be configurable
         let cache = Cache::new(1_000_000);
         let single_flight_group = SingleFlight::default();
 
