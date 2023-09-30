@@ -33,6 +33,10 @@ impl<Value: ValueBounds> GroupcacheWrapper<Value> {
     pub fn server(&self) -> GroupcacheServer<Groupcache<Value>> {
         GroupcacheServer::from_arc(self.0.clone())
     }
+
+    pub fn addr(&self) -> SocketAddr {
+        self.0.me.socket
+    }
 }
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]

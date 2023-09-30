@@ -59,7 +59,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
         Ok(value)
     }
 
-    async fn get_dedup(&self, key: &Key, peer: Peer) -> Result<Value> {
+    async fn get_dedup(&self, key: &Key, peer: Peer) -> Result<Value, InternalGroupcacheError> {
         let value = self
             .single_flight_group
             .work(key, || async { self.error_wrapped_dedup(key, peer).await })
@@ -78,7 +78,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
             .map_err(|e| DedupedGroupcacheError(Arc::new(e)))
     }
 
-    async fn dedup_get(&self, key: &Key, peer: Peer) -> Result<Value> {
+    async fn dedup_get(&self, key: &Key, peer: Peer) -> Result<Value, InternalGroupcacheError> {
         let value = if peer == self.me {
             let value = self.load_locally(key).await?;
             self.cache.insert(key.to_string(), value.clone());
@@ -95,10 +95,10 @@ impl<Value: ValueBounds> Groupcache<Value> {
         self.loader
             .load(key)
             .await
-            .map_err(InternalGroupcacheError::Loader)
+            .map_err(InternalGroupcacheError::LocalLoader)
     }
 
-    async fn load_remotely(&self, key: &Key, peer: Peer) -> Result<Value> {
+    async fn load_remotely(&self, key: &Key, peer: Peer) -> Result<Value, InternalGroupcacheError> {
         let mut client = {
             let read_lock = self.routing_state.read().unwrap();
             read_lock.client_for_peer(&peer)?

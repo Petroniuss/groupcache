@@ -68,15 +68,16 @@ struct ConnectedPeer {
     client: PeerClient,
 }
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct VNode {
-    addr: SocketAddr,
-    id: usize,
+    addr_id: String,
 }
 
 impl VNode {
     fn new(addr: SocketAddr, id: usize) -> Self {
-        VNode { id, addr }
+        Self {
+            addr_id: format!("{}_{}", addr, id),
+        }
     }
 
     fn vnodes_for_peer(peer: Peer, num: i32) -> Vec<VNode> {
@@ -90,6 +91,7 @@ impl VNode {
     }
 
     fn as_peer(&self) -> Peer {
-        Peer { socket: self.addr }
+        let addr = self.addr_id.split('_').next().unwrap().parse().unwrap();
+        Peer { socket: addr }
     }
 }

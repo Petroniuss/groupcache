@@ -39,7 +39,7 @@ pub async fn test_get_local_peer() -> Result<()> {
 pub async fn test_get_successful_from_a_remote_peer() -> Result<()> {
     let (instance_one, instance_two) = two_connected_instances().await?;
 
-    async fn assert_lookup(key: &str, groupcache: GroupcacheWrapper<CachedValue>) -> Result<()> {
+    async fn assert_lookup(key: &str, groupcache: TestGroupcache) -> Result<()> {
         let v = groupcache.get(key).await?;
         assert_eq!(v.contains(key), true);
         Ok(())
@@ -55,29 +55,34 @@ pub async fn test_get_successful_from_a_remote_peer() -> Result<()> {
 
 #[tokio::test]
 pub async fn test_failing_get_after_peer_disconnects() -> Result<()> {
-    async fn assert_lookup(key: &str, groupcache: GroupcacheWrapper<CachedValue>) {
-        let result = groupcache.get(key).await;
-        match result {
-            Ok(v) => {
-                assert_eq!(v.contains(key), true);
-            }
-            Err(e) => {
-                let error_string = e.to_string();
-                assert_eq!(
-                    error_string.contains("error"),
-                    true,
-                    "expected error, got: '{}'",
-                    error_string
-                );
-            }
-        }
-    }
-
-    let groupcache = two_instances_with_one_disconnected().await?;
-
+    let (instance_one, instance_two) = two_instances_with_one_disconnected().await?;
     for &key in ["K-b3a", "K-karo", "K-x3d", "K-d42", "W-a1a"].iter() {
-        assert_lookup(key, groupcache.clone()).await;
+        assert_success_or_transport_err(key, instance_one.clone()).await;
+        assert_success_or_transport_err(key, instance_two.clone()).await;
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+pub async fn test_no_errors_after_peer_reconnects() -> Result<()> {
+    let (instance_one, instance_two) = two_instances_with_one_disconnected().await?;
+
+    let addr = instance_two.addr().to_string();
+    let vnode = format!("{}_0", addr);
+    assert_success_or_transport_err(&vnode, instance_one.clone()).await;
+
+    let listener = TcpListener::bind(addr).await.unwrap();
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(instance_two.server())
+            .serve_with_incoming(TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+
+    let res = instance_one.get(&vnode).await?;
+    assert_eq!(format!("VAL_INSTANCE_{}_KEY_{}", "2", vnode), res);
 
     Ok(())
 }
@@ -90,10 +95,7 @@ pub async fn test_failing_get_after_peer_disconnects() -> Result<()> {
 
 // todo: test peer returning errors
 
-async fn two_connected_instances() -> Result<(
-    GroupcacheWrapper<CachedValue>,
-    GroupcacheWrapper<CachedValue>,
-)> {
+async fn two_connected_instances() -> Result<(TestGroupcache, TestGroupcache)> {
     let (instance_one, addr_one) = spawn_groupcache("1".to_string()).await?;
     let (instance_two, addr_two) = spawn_groupcache("2".to_string()).await?;
 
@@ -103,7 +105,7 @@ async fn two_connected_instances() -> Result<(
     Ok((instance_one, instance_two))
 }
 
-async fn two_instances_with_one_disconnected() -> Result<GroupcacheWrapper<CachedValue>> {
+async fn two_instances_with_one_disconnected() -> Result<(TestGroupcache, TestGroupcache)> {
     let (shutdown_signal, shutdown_recv) = tokio::sync::oneshot::channel::<()>();
     let (shutdown_done_s, shutdown_done_r) = tokio::sync::oneshot::channel::<()>();
     async fn shutdown_proxy(shutdown_signal: Receiver<()>, shutdown_done: Sender<()>) {
@@ -125,12 +127,10 @@ async fn two_instances_with_one_disconnected() -> Result<GroupcacheWrapper<Cache
     shutdown_signal.send(()).unwrap();
     shutdown_done_r.await.unwrap();
 
-    Ok(instance_one)
+    Ok((instance_one, instance_two))
 }
 
-async fn spawn_groupcache(
-    instance_id: String,
-) -> Result<(GroupcacheWrapper<CachedValue>, SocketAddr)> {
+async fn spawn_groupcache(instance_id: String) -> Result<(TestGroupcache, SocketAddr)> {
     spawn_groupcache_instance(instance_id, "127.0.0.1:0".to_string(), pending()).await
 }
 
@@ -138,7 +138,7 @@ async fn spawn_groupcache_instance(
     instance_id: String,
     addr: String,
     shutdown_signal: impl Future<Output = ()> + Send + 'static,
-) -> Result<(GroupcacheWrapper<CachedValue>, SocketAddr)> {
+) -> Result<(TestGroupcache, SocketAddr)> {
     let listener = TcpListener::bind(addr).await.unwrap();
     let addr = listener.local_addr()?;
     let groupcache = {
@@ -158,6 +158,26 @@ async fn spawn_groupcache_instance(
 
     Ok((groupcache, addr))
 }
+
+async fn assert_success_or_transport_err(key: &str, groupcache: TestGroupcache) {
+    let result = groupcache.get(key).await;
+    match result {
+        Ok(v) => {
+            assert_eq!(v.contains(key), true);
+        }
+        Err(e) => {
+            let error_string = e.to_string();
+            assert_eq!(
+                error_string.contains("Transport"),
+                true,
+                "expected transport error, got: '{}'",
+                error_string
+            );
+        }
+    }
+}
+
+type TestGroupcache = GroupcacheWrapper<CachedValue>;
 
 type CachedValue = String;
 
