@@ -30,7 +30,7 @@ impl RoutingState {
     }
 
     pub(crate) fn peer_for_key(&self, key: &Key) -> Result<Peer> {
-        let vnode = self.ring.get(key).context("ring can't be empty")?;
+        let vnode = self.ring.get(&key).context("ring can't be empty")?;
 
         Ok(vnode.as_peer())
     }
