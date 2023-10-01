@@ -30,7 +30,18 @@ pub async fn test_get_local_peer() -> Result<()> {
 
     let key2 = "K_error";
     let v2 = groupcache.get(key2).await;
-    assert_eq!(true, v2.is_err(), "is error");
+
+    match v2 {
+        Err(e) => {
+            assert_eq!(
+                e.to_string(),
+                "Loading error: 'Something bad happened during loading :/'"
+            );
+        }
+        Ok(_) => {
+            panic!("should be error");
+        }
+    }
 
     Ok(())
 }
@@ -66,23 +77,25 @@ pub async fn test_failing_get_after_peer_disconnects() -> Result<()> {
 
 #[tokio::test]
 pub async fn test_no_errors_after_peer_reconnects() -> Result<()> {
+    async fn reconnect(instance: TestGroupcache) {
+        let listener = TcpListener::bind(instance.addr()).await.unwrap();
+        tokio::spawn(async move {
+            Server::builder()
+                .add_service(instance.server())
+                .serve_with_incoming(TcpListenerStream::new(listener))
+                .await
+                .unwrap();
+        });
+    }
     let (instance_one, instance_two) = two_instances_with_one_disconnected().await?;
 
-    let addr = instance_two.addr().to_string();
-    let vnode = format!("{}_0", addr);
-    assert_success_or_transport_err(&vnode, instance_one.clone()).await;
+    reconnect(instance_two.clone()).await;
+    let instance_2_addr = instance_two.addr().to_string();
+    let key_on_instance_2 = format!("{}_0", instance_2_addr);
+    assert_success_or_transport_err(&key_on_instance_2, instance_one.clone()).await;
 
-    let listener = TcpListener::bind(addr).await.unwrap();
-    tokio::spawn(async move {
-        Server::builder()
-            .add_service(instance_two.server())
-            .serve_with_incoming(TcpListenerStream::new(listener))
-            .await
-            .unwrap();
-    });
-
-    let res = instance_one.get(&vnode).await?;
-    assert_eq!(format!("VAL_INSTANCE_{}_KEY_{}", "2", vnode), res);
+    let res = instance_one.get(&key_on_instance_2).await?;
+    assert_eq!(format!("VAL_INSTANCE_2_KEY_{}", key_on_instance_2), res);
 
     Ok(())
 }
@@ -96,8 +109,8 @@ pub async fn test_no_errors_after_peer_reconnects() -> Result<()> {
 // todo: test peer returning errors
 
 async fn two_connected_instances() -> Result<(TestGroupcache, TestGroupcache)> {
-    let (instance_one, addr_one) = spawn_groupcache("1".to_string()).await?;
-    let (instance_two, addr_two) = spawn_groupcache("2".to_string()).await?;
+    let (instance_one, addr_one) = spawn_groupcache("1").await?;
+    let (instance_two, addr_two) = spawn_groupcache("2").await?;
 
     instance_one.add_peer(addr_two.into()).await?;
     instance_two.add_peer(addr_one.into()).await?;
@@ -113,10 +126,10 @@ async fn two_instances_with_one_disconnected() -> Result<(TestGroupcache, TestGr
         shutdown_done.send(()).unwrap();
     }
 
-    let (instance_one, addr_one) = spawn_groupcache("1".to_string()).await?;
+    let (instance_one, addr_one) = spawn_groupcache("1").await?;
     let (instance_two, addr_two) = spawn_groupcache_instance(
-        "2".to_string(),
-        "127.0.0.1:0".to_string(),
+        "2",
+        "127.0.0.1:0",
         shutdown_proxy(shutdown_recv, shutdown_done_s),
     )
     .await?;
@@ -130,19 +143,21 @@ async fn two_instances_with_one_disconnected() -> Result<(TestGroupcache, TestGr
     Ok((instance_one, instance_two))
 }
 
-async fn spawn_groupcache(instance_id: String) -> Result<(TestGroupcache, SocketAddr)> {
-    spawn_groupcache_instance(instance_id, "127.0.0.1:0".to_string(), pending()).await
+async fn spawn_groupcache(instance_id: &str) -> Result<(TestGroupcache, SocketAddr)> {
+    spawn_groupcache_instance(instance_id, "127.0.0.1:0", pending()).await
 }
 
 async fn spawn_groupcache_instance(
-    instance_id: String,
-    addr: String,
+    instance_id: &str,
+    addr: &str,
     shutdown_signal: impl Future<Output = ()> + Send + 'static,
 ) -> Result<(TestGroupcache, SocketAddr)> {
     let listener = TcpListener::bind(addr).await.unwrap();
     let addr = listener.local_addr()?;
     let groupcache = {
-        let loader = TestCacheLoader { instance_id };
+        let loader = TestCacheLoader {
+            instance_id: instance_id.to_string(),
+        };
         let addr = addr;
         GroupcacheWrapper::<CachedValue>::new(addr.into(), Box::new(loader))
     };

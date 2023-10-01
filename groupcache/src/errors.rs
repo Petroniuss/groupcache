@@ -15,7 +15,7 @@ pub(crate) struct DedupedGroupcacheError(pub(crate) Arc<InternalGroupcacheError>
 
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum InternalGroupcacheError {
-    #[error(transparent)]
+    #[error("Loading error: '{}'", .0)]
     LocalLoader(#[from] Box<dyn std::error::Error + Send + Sync + 'static>),
 
     #[error("Transport error: '{}'", .0)]
