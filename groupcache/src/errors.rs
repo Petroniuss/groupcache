@@ -18,7 +18,7 @@ pub(crate) enum InternalGroupcacheError {
     #[error("Loading error: '{}'", .0)]
     LocalLoader(#[from] Box<dyn std::error::Error + Send + Sync + 'static>),
 
-    #[error("Transport error: '{}'", .0)]
+    #[error("Transport error: '{}'", .0.message())]
     Transport(#[from] Status),
 
     #[error(transparent)]
