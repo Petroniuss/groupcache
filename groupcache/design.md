@@ -20,3 +20,15 @@ I want to do the following:
      That way, when it comes back up, it can take ownership of the keys it wants.
      The way we can control that in Consistent Hashing is by having a fixed order of the keys.
      Do we want to support moves of keys between peers when a peer list changes?
+
+
+
+Idea:
+Would be great to support API that allows updating a key-value pair, but preserves consistency and cache replication.
+
+Good reading about groupcache:
+https://news.ycombinator.com/item?id=6121501
+
+I guess the best way to implement updating a KV pair would be to:
+- introduce a timeout when a hot KV pair replicated to a peer expires,
+- have owner of a value respect updates.

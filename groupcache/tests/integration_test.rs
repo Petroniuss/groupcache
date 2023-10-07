@@ -170,7 +170,7 @@ async fn reconnect(instance: TestGroupcache) {
     let listener = TcpListener::bind(instance.addr()).await.unwrap();
     tokio::spawn(async move {
         Server::builder()
-            .add_service(instance.server())
+            .add_service(instance.grpc_service())
             .serve_with_incoming(TcpListenerStream::new(listener))
             .await
             .unwrap();
@@ -218,7 +218,7 @@ async fn spawn_groupcache_instance(
         GroupcacheWrapper::<CachedValue>::new(addr.into(), Box::new(loader))
     };
 
-    let server = groupcache.server();
+    let server = groupcache.grpc_service();
     tokio::spawn(async move {
         Server::builder()
             .add_service(server)

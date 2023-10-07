@@ -12,6 +12,7 @@ use groupcache_pb::groupcache_pb::groupcache_server::GroupcacheServer;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tonic::transport::Channel;
 
 #[derive(Clone)]
@@ -30,7 +31,7 @@ impl<Value: ValueBounds> GroupcacheWrapper<Value> {
         self.0.remove_peer(peer).await
     }
 
-    pub fn server(&self) -> GroupcacheServer<Groupcache<Value>> {
+    pub fn grpc_service(&self) -> GroupcacheServer<Groupcache<Value>> {
         GroupcacheServer::from_arc(self.0.clone())
     }
 
@@ -68,9 +69,62 @@ pub trait ValueLoader: Send + Sync {
 
 type PeerClient = GroupcacheClient<Channel>;
 
+#[derive(Default)]
+pub struct GroupcacheOptions {
+    pub cache_capacity: Option<u64>,
+    pub hot_cache_capacity: Option<u64>,
+    pub hot_cache_timeout_seconds: Option<Duration>,
+}
+
+pub(crate) struct Options {
+    pub(crate) cache_capacity: u64,
+    pub(crate) hot_cache_capacity: u64,
+    pub(crate) hot_cache_ttl: Duration,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            cache_capacity: 100_000,
+            hot_cache_capacity: 10_000,
+            hot_cache_ttl: Duration::from_secs(30),
+        }
+    }
+}
+
+impl From<GroupcacheOptions> for Options {
+    fn from(value: GroupcacheOptions) -> Self {
+        let default = Options::default();
+
+        let cache_capacity = value.cache_capacity.unwrap_or(default.cache_capacity);
+
+        let hot_cache_capacity = value
+            .hot_cache_capacity
+            .unwrap_or(default.hot_cache_capacity);
+
+        let hot_cache_timeout_seconds = value
+            .hot_cache_timeout_seconds
+            .unwrap_or(default.hot_cache_ttl);
+
+        Self {
+            cache_capacity,
+            hot_cache_capacity,
+            hot_cache_ttl: hot_cache_timeout_seconds,
+        }
+    }
+}
+
 impl<Value: ValueBounds> GroupcacheWrapper<Value> {
     pub fn new(me: Peer, loader: Box<dyn ValueLoader<Value = Value>>) -> Self {
-        let groupcache = Groupcache::new(me, loader);
+        GroupcacheWrapper::new_with_options(me, loader, GroupcacheOptions::default())
+    }
+
+    pub fn new_with_options(
+        me: Peer,
+        loader: Box<dyn ValueLoader<Value = Value>>,
+        options: GroupcacheOptions,
+    ) -> Self {
+        let groupcache = Groupcache::new(me, loader, options.into());
         Self(Arc::new(groupcache))
     }
 }

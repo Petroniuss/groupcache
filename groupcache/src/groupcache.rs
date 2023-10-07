@@ -1,36 +1,51 @@
 use crate::errors::{DedupedGroupcacheError, GroupcacheError, InternalGroupcacheError};
 use crate::routing::RoutingState;
-use crate::{Key, Peer, ValueBounds, ValueLoader};
+use crate::{Key, Options, Peer, ValueBounds, ValueLoader};
 use anyhow::Result;
 use groupcache_pb::groupcache_pb::groupcache_client::GroupcacheClient;
 use groupcache_pb::groupcache_pb::GetRequest;
-use quick_cache::sync::Cache;
+use moka::future::Cache;
 use singleflight_async::SingleFlight;
 use std::sync::{Arc, RwLock};
 use tonic::IntoRequest;
-use tracing::log;
 
 pub struct Groupcache<Value: ValueBounds> {
     routing_state: Arc<RwLock<RoutingState>>,
     single_flight_group: SingleFlight<Result<Value, DedupedGroupcacheError>>,
+    // cache is used for values that are owned by this peer.
     cache: Cache<String, Value>,
+    // hot_cache is used for caching values that are owned by other peers.
+    hot_cache: Cache<String, Value>,
     loader: Box<dyn ValueLoader<Value = Value>>,
     pub(crate) me: Peer,
 }
 
 impl<Value: ValueBounds> Groupcache<Value> {
-    pub fn new(me: Peer, loader: Box<dyn ValueLoader<Value = Value>>) -> Self {
+    pub(crate) fn new(
+        me: Peer,
+        loader: Box<dyn ValueLoader<Value = Value>>,
+        options: Options,
+    ) -> Self {
         let routing_state = Arc::new(RwLock::new(RoutingState::with_local_peer(me)));
-        // todo: cache capacity should be configurable
-        let cache = Cache::new(1_000_000);
+
+        let cache = Cache::<String, Value>::builder()
+            .max_capacity(options.cache_capacity)
+            .build();
+
+        let hot_cache = Cache::<String, Value>::builder()
+            .max_capacity(options.hot_cache_capacity)
+            .time_to_live(options.hot_cache_ttl)
+            .build();
+
         let single_flight_group = SingleFlight::default();
 
         Self {
-            me,
             routing_state,
             single_flight_group,
             cache,
+            hot_cache,
             loader,
+            me,
         }
     }
 
@@ -39,21 +54,18 @@ impl<Value: ValueBounds> Groupcache<Value> {
     }
 
     async fn get_internal(&self, key: &Key) -> Result<Value, InternalGroupcacheError> {
-        if let Some(value) = self.cache.get(key) {
-            log::info!("peer {:?} serving from cache: {:?}", self.me.socket, key);
+        if let Some(value) = self.cache.get(key).await {
+            return Ok(value);
+        }
+
+        if let Some(value) = self.hot_cache.get(key).await {
             return Ok(value);
         }
 
         let peer = {
             let lock = self.routing_state.read().unwrap();
-
             lock.peer_for_key(key)?
         };
-        log::info!(
-            "peer {:?} getting from peer: {:?}",
-            self.me.socket,
-            peer.socket
-        );
 
         let value = self.get_dedup(key, peer).await?;
         Ok(value)
@@ -81,10 +93,13 @@ impl<Value: ValueBounds> Groupcache<Value> {
     async fn dedup_get(&self, key: &Key, peer: Peer) -> Result<Value, InternalGroupcacheError> {
         let value = if peer == self.me {
             let value = self.load_locally(key).await?;
-            self.cache.insert(key.to_string(), value.clone());
+            self.cache.insert(key.to_string(), value.clone()).await;
+
             value
         } else {
             let value = self.load_remotely(key, peer).await?;
+            self.hot_cache.insert(key.to_string(), value.clone()).await;
+
             value
         };
 
@@ -131,7 +146,6 @@ impl<Value: ValueBounds> Groupcache<Value> {
         }
 
         let peer_server_address = format!("http://{}", peer.socket.clone());
-
         let client = GroupcacheClient::connect(peer_server_address).await?;
 
         let mut write_lock = self.routing_state.write().unwrap();

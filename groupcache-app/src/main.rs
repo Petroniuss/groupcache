@@ -1,84 +1,81 @@
 use anyhow::Result;
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
+use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::header::CONTENT_TYPE;
+use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use axum::{Json, Router};
-use groupcache::http::start_grpc_server;
 use groupcache::{GroupcacheWrapper, Key};
 use serde::{Deserialize, Serialize};
+use std::convert::Infallible;
 use std::env;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::SocketAddr;
 use std::time::Duration;
-use tracing::{error, info, log};
+use tower::make::Shared;
+use tower::steer::Steer;
+use tower::ServiceExt;
+use tower_http::classify::{ServerErrorsAsFailures, SharedClassifier};
+use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
+use tower_http::LatencyUnit;
+use tracing::{error, info, log, Level};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
+    let port = env::var("PORT")
+        .unwrap_or_else(|_| "3000".to_string())
+        .parse::<u16>()?;
+    let addr: SocketAddr = format!("127.0.0.1:{}", port).parse()?;
+
+    // Groupcache instance, configured to respond to requests under `addr`
+    let groupcache = configure_groupcache(addr).await?;
+
+    // Example axum app with endpoints to add groupcache peers and retrieve values from groupcache.
+    let axum_app = Router::new()
+        .route("/root", get(root))
+        .route("/key/:key_id", get(get_key_handler))
+        .route("/peer/:peer_addr", put(add_peer_handler))
+        .with_state(groupcache.clone())
+        .layer(trace())
+        .boxed_clone();
+
+    // Groupcache gRPC service, used for cross-peer communication if there are multiple peers in the cluster.
+    let grpc_groupcache = tonic::transport::Server::builder()
+        .add_service(groupcache.grpc_service())
+        .into_service()
+        .map_response(|r| r.map(axum::body::boxed))
+        .map_err::<_, Infallible>(|_| panic!("unreachable - make the compiler happy"))
+        .boxed_clone();
+
+    // Create a service that can respond to Web and gRPC
+    let http_grpc = Steer::new(
+        vec![axum_app, grpc_groupcache],
+        |req: &Request<Body>, _svcs: &[_]| {
+            let content_type = req.headers().get(CONTENT_TYPE).map(|v| v.as_bytes());
+            usize::from(
+                content_type == Some(b"application/grpc")
+                    || content_type == Some(b"application/grpc+proto"),
+            )
+        },
+    );
+
+    axum::Server::bind(&addr)
+        .serve(Shared::new(http_grpc))
+        .await
+        .context("Failed to start axum server")?;
+
+    Ok(())
+}
+
+struct CacheLoader {}
 
 #[derive(Clone, Deserialize, Serialize)]
 struct CachedValue {
     plain_string: String,
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetResponseFailure {
-    pub key: String,
-    pub error: String,
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
-
-    let port = env::var("PORT")
-        .unwrap_or_else(|_| "3000".to_string())
-        .parse::<u16>()?;
-
-    let groupcache_port = port;
-    let axum_port = port + 5000;
-
-    // todo: profile application
-    // https://fasterthanli.me/articles/request-coalescing-in-async-rust
-
-    // todo: prepare performance test for groupcache
-
-    let groupcache = configure_groupcache(groupcache_port).await?;
-
-    // todo: it should be possible to leave it up to the user to run groupcache on the same port as axum
-    //      tldr; multiplex traffic to both application axum web service and groupcache.
-    let _res = tokio::try_join!(
-        run_groupcache(groupcache.clone()),
-        axum(axum_port, groupcache.clone())
-    )?;
-
-    // todo: it should be possible to retrieve metrics from groupcache
-    // todo: have a separate crate that exports metrics to prometheus
-
-    Ok(())
-}
-
-async fn axum(port: u16, groupcache: GroupcacheWrapper<CachedValue>) -> Result<()> {
-    let addr = format!("localhost:{port}")
-        .to_socket_addrs()?
-        .next()
-        .unwrap();
-    info!("Running axum on {}", addr);
-
-    let app = Router::new()
-        .route("/root", get(root))
-        .route("/key/:key_id", get(get_key_handler))
-        .route("/peer/:peer_addr", put(add_peer_handler))
-        .with_state(groupcache);
-
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await?;
-
-    Ok(())
-}
-
-// todo: instead require types to be serializable to bytes using serde
-// and MessagePack -> should be good enough for our purposes.
-struct CacheLoader {}
 
 #[async_trait]
 impl groupcache::ValueLoader for CacheLoader {
@@ -103,27 +100,34 @@ impl groupcache::ValueLoader for CacheLoader {
     }
 }
 
-async fn configure_groupcache(port: u16) -> Result<GroupcacheWrapper<CachedValue>> {
+async fn configure_groupcache(socket: SocketAddr) -> Result<GroupcacheWrapper<CachedValue>> {
     let loader = CacheLoader {};
-    let socket: SocketAddr = format!("127.0.0.1:{}", port).parse()?;
-
     let groupcache = GroupcacheWrapper::new(socket.into(), Box::new(loader));
 
     Ok(groupcache)
 }
 
-async fn run_groupcache(groupcache: GroupcacheWrapper<CachedValue>) -> Result<()> {
-    start_grpc_server(groupcache)
-        .await
-        .context("failed to start server")?;
-
-    Ok(())
+fn trace() -> TraceLayer<SharedClassifier<ServerErrorsAsFailures>> {
+    TraceLayer::new_for_http()
+        .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+        .on_request(DefaultOnRequest::new().level(Level::INFO))
+        .on_response(
+            DefaultOnResponse::new()
+                .level(Level::INFO)
+                .latency_unit(LatencyUnit::Micros),
+        )
 }
 
 #[derive(Serialize)]
 struct GetResponse {
     key: String,
     value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GetResponseFailure {
+    pub key: String,
+    pub error: String,
 }
 
 async fn get_key_handler(
@@ -165,7 +169,6 @@ async fn add_peer_handler(
     StatusCode::OK
 }
 
-// basic handler that responds with a static string
 async fn root() -> &'static str {
     "Hello, World!"
 }
