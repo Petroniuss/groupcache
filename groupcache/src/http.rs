@@ -1,6 +1,8 @@
 use crate::{Groupcache, ValueBounds};
 use async_trait::async_trait;
-use groupcache_pb::groupcache_pb::{groupcache_server, GetRequest, GetResponse};
+use groupcache_pb::groupcache_pb::{
+    groupcache_server, GetRequest, GetResponse, RemoveRequest, RemoveResponse,
+};
 use tonic::{Request, Response, Status};
 
 #[async_trait]
@@ -16,6 +18,18 @@ impl<Value: ValueBounds> groupcache_server::Groupcache for Groupcache<Value> {
                     Err(err) => Err(Status::internal(err.to_string())),
                 }
             }
+            Err(err) => Err(Status::internal(err.to_string())),
+        }
+    }
+
+    async fn remove(
+        &self,
+        request: Request<RemoveRequest>,
+    ) -> Result<Response<RemoveResponse>, Status> {
+        let payload = request.into_inner();
+
+        match self.remove(&payload.key).await {
+            Ok(_) => Ok(Response::new(RemoveResponse {})),
             Err(err) => Err(Status::internal(err.to_string())),
         }
     }

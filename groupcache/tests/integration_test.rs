@@ -1,17 +1,22 @@
 use anyhow::anyhow;
 use anyhow::Result;
 use async_trait::async_trait;
-use groupcache::{GroupcacheWrapper, Key};
+use groupcache::{GroupcacheOptions, GroupcacheWrapper, Key};
 use pretty_assertions::assert_eq;
+use std::collections::HashMap;
 use std::future::{pending, Future};
 use std::net::SocketAddr;
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot::{Receiver, Sender};
+use tokio::time;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::codegen::tokio_stream;
 use tonic::transport::Server;
 
 static OS_ALLOCATED_PORT_ADDR: &str = "127.0.0.1:0";
+static HOT_CACHE_TTL: Duration = Duration::from_millis(100);
 
 #[tokio::test]
 async fn test_when_there_is_only_one_peer_it_should_handle_entire_key_space() -> Result<()> {
@@ -123,9 +128,124 @@ async fn test_when_there_are_multiple_instances_each_should_own_portion_of_key_s
     Ok(())
 }
 
-// todo: test timeout.
-// todo: test local peer cache.
-// todo: test removal of peer from peer_list.
+#[tokio::test]
+async fn when_kv_is_loaded_it_should_be_cached_by_the_owner() -> Result<()> {
+    let (instance_one, instance_two) = two_connected_instances().await?;
+    let key_on_instance_2 = key_owned_by_instance(instance_two.clone());
+
+    successful_get_opts(
+        &key_on_instance_2,
+        instance_one.clone(),
+        GetAssertions {
+            expected_instance_id: Some("2".into()),
+            expected_load_count: Some(1),
+        },
+    )
+    .await;
+
+    successful_get_opts(
+        &key_on_instance_2,
+        instance_two.clone(),
+        GetAssertions {
+            expected_instance_id: Some("2".into()),
+            expected_load_count: Some(1),
+        },
+    )
+    .await;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn when_kv_is_loaded_it_should_be_cached_in_hot_cache() -> Result<()> {
+    let (instance_one, instance_two) = two_connected_instances().await?;
+    let key_on_instance_2 = key_owned_by_instance(instance_two.clone());
+
+    successful_get_opts(
+        &key_on_instance_2,
+        instance_one.clone(),
+        GetAssertions {
+            expected_instance_id: Some("2".into()),
+            expected_load_count: Some(1),
+        },
+    )
+    .await;
+
+    instance_two.remove(&key_on_instance_2).await?;
+
+    successful_get_opts(
+        &key_on_instance_2,
+        instance_one.clone(),
+        GetAssertions {
+            expected_instance_id: Some("2".into()),
+            expected_load_count: Some(1),
+        },
+    )
+    .await;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn when_kv_is_saved_in_hot_cache_it_should_expire_according_to_ttl() -> Result<()> {
+    let (instance_one, instance_two) = two_connected_instances().await?;
+    let key_on_instance_2 = key_owned_by_instance(instance_two.clone());
+
+    successful_get_opts(
+        &key_on_instance_2,
+        instance_one.clone(),
+        GetAssertions {
+            expected_instance_id: Some("2".into()),
+            expected_load_count: Some(1),
+        },
+    )
+    .await;
+
+    instance_two.remove(&key_on_instance_2).await?;
+    time::sleep(HOT_CACHE_TTL).await;
+
+    successful_get_opts(
+        &key_on_instance_2,
+        instance_one.clone(),
+        GetAssertions {
+            expected_instance_id: Some("2".into()),
+            expected_load_count: Some(2),
+        },
+    )
+    .await;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn when_key_is_removed_then_it_should_be_removed_from_owner() -> Result<()> {
+    let (instance_one, instance_two) = two_connected_instances().await?;
+    let key_on_instance_2 = key_owned_by_instance(instance_two.clone());
+
+    successful_get_opts(
+        &key_on_instance_2,
+        instance_one.clone(),
+        GetAssertions {
+            expected_instance_id: Some("2".into()),
+            expected_load_count: Some(1),
+        },
+    )
+    .await;
+
+    instance_one.remove(&key_on_instance_2).await?;
+
+    successful_get_opts(
+        &key_on_instance_2,
+        instance_two.clone(),
+        GetAssertions {
+            expected_instance_id: Some("2".into()),
+            expected_load_count: Some(2),
+        },
+    )
+    .await;
+
+    Ok(())
+}
 
 fn key_owned_by_instance(instance: TestGroupcache) -> String {
     format!("{}_0", instance.addr())
@@ -215,7 +335,14 @@ async fn spawn_groupcache_instance(
     let addr = listener.local_addr()?;
     let groupcache = {
         let loader = TestCacheLoader::new(instance_id);
-        GroupcacheWrapper::<CachedValue>::new(addr.into(), Box::new(loader))
+        GroupcacheWrapper::<CachedValue>::new_with_options(
+            addr.into(),
+            Box::new(loader),
+            GroupcacheOptions {
+                hot_cache_ttl: Some(HOT_CACHE_TTL),
+                ..GroupcacheOptions::default()
+            },
+        )
     };
 
     let server = groupcache.grpc_service();
@@ -248,12 +375,49 @@ async fn success_or_transport_err(key: &str, groupcache: TestGroupcache) {
     }
 }
 
+#[derive(Default)]
+struct GetAssertions {
+    expected_instance_id: Option<String>,
+    expected_load_count: Option<i32>,
+}
+
 async fn successful_get(key: &str, expected_instance_id: Option<&str>, groupcache: TestGroupcache) {
+    let opts = GetAssertions {
+        expected_instance_id: expected_instance_id.map(|s| s.to_string()),
+        ..GetAssertions::default()
+    };
+
+    successful_get_opts(key, groupcache, opts).await;
+}
+
+async fn successful_get_opts(key: &str, groupcache: TestGroupcache, opts: GetAssertions) {
     let v = groupcache.get(key).await.expect("get should be successful");
 
-    assert_eq!(v.contains(key), true);
-    if let Some(instance) = expected_instance_id {
-        assert_eq!(v.contains(instance), true);
+    assert_eq!(
+        v.contains(key),
+        true,
+        "expected value to be '{}', got: '{}'",
+        key,
+        v
+    );
+    if let Some(instance) = opts.expected_instance_id {
+        assert_eq!(
+            v.contains(&format!("INSTANCE_{}", instance)),
+            true,
+            "expected instance id to be '{}', got: '{}'",
+            instance,
+            v
+        );
+    }
+
+    if let Some(load) = opts.expected_load_count {
+        assert_eq!(
+            v.contains(&format!("LOAD_{}", load)),
+            true,
+            "expected load count to be '{}', got: '{}'",
+            load,
+            v,
+        );
     }
 }
 
@@ -263,13 +427,23 @@ type CachedValue = String;
 
 struct TestCacheLoader {
     instance_id: String,
+    load_counter: Arc<RwLock<HashMap<String, i32>>>,
 }
 
 impl TestCacheLoader {
     fn new(instance_id: &str) -> Self {
         Self {
             instance_id: instance_id.to_string(),
+            load_counter: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    fn count_loads(&self, key: &Key) -> Result<i32> {
+        let mut lock = self.load_counter.write().unwrap();
+        let counter = lock.entry(key.to_string()).or_insert(0);
+        *counter += 1;
+
+        Ok(*counter)
     }
 }
 
@@ -281,8 +455,12 @@ impl groupcache::ValueLoader for TestCacheLoader {
         &self,
         key: &Key,
     ) -> std::result::Result<Self::Value, Box<dyn std::error::Error + Send + Sync + 'static>> {
+        let load_counter = self.count_loads(key)?;
         return if !key.contains("error") && !key.contains("_13") {
-            Ok(format!("VAL_INSTANCE_{}_KEY_{}", self.instance_id, key))
+            Ok(format!(
+                "VAL_INSTANCE_{}_KEY_{}_LOAD_{}",
+                self.instance_id, key, load_counter
+            ))
         } else {
             Err(anyhow!("Something bad happened during loading :/").into())
         };

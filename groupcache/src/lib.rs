@@ -23,6 +23,10 @@ impl<Value: ValueBounds> GroupcacheWrapper<Value> {
         self.0.get(key).await
     }
 
+    pub async fn remove(&self, key: &Key) -> core::result::Result<(), GroupcacheError> {
+        self.0.remove(key).await
+    }
+
     pub async fn add_peer(&self, peer: Peer) -> Result<()> {
         self.0.add_peer(peer).await
     }
@@ -43,6 +47,12 @@ impl<Value: ValueBounds> GroupcacheWrapper<Value> {
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Peer {
     socket: SocketAddr,
+}
+
+impl Peer {
+    pub(crate) fn addr(&self) -> String {
+        format!("http://{}", self.socket.clone())
+    }
 }
 
 impl From<SocketAddr> for Peer {
@@ -73,7 +83,7 @@ type PeerClient = GroupcacheClient<Channel>;
 pub struct GroupcacheOptions {
     pub cache_capacity: Option<u64>,
     pub hot_cache_capacity: Option<u64>,
-    pub hot_cache_timeout_seconds: Option<Duration>,
+    pub hot_cache_ttl: Option<Duration>,
 }
 
 pub(crate) struct Options {
@@ -102,9 +112,7 @@ impl From<GroupcacheOptions> for Options {
             .hot_cache_capacity
             .unwrap_or(default.hot_cache_capacity);
 
-        let hot_cache_timeout_seconds = value
-            .hot_cache_timeout_seconds
-            .unwrap_or(default.hot_cache_ttl);
+        let hot_cache_timeout_seconds = value.hot_cache_ttl.unwrap_or(default.hot_cache_ttl);
 
         Self {
             cache_capacity,
