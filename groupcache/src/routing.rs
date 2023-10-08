@@ -29,6 +29,8 @@ impl RoutingState {
         }
     }
 
+    // todo: I think we should instead return tuple (peer, client)
+    // this way we'd acquire reader lock only once on a hot path, not twice.
     pub(crate) fn peer_for_key(&self, key: &Key) -> Result<Peer> {
         let vnode = self.ring.get(&key).context("ring can't be empty")?;
 

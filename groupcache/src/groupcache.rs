@@ -3,7 +3,7 @@ use crate::routing::RoutingState;
 use crate::{Key, Options, Peer, ValueBounds, ValueLoader};
 use anyhow::Result;
 use groupcache_pb::groupcache_pb::groupcache_client::GroupcacheClient;
-use groupcache_pb::groupcache_pb::GetRequest;
+use groupcache_pb::groupcache_pb::{GetRequest, RemoveRequest};
 use moka::future::Cache;
 use singleflight_async::SingleFlight;
 use std::sync::{Arc, RwLock};
@@ -55,26 +55,6 @@ impl<Value: ValueBounds> Groupcache<Value> {
 
     pub(crate) async fn remove(&self, key: &Key) -> core::result::Result<(), GroupcacheError> {
         Ok(self.remove_internal(key).await?)
-    }
-
-    pub(crate) async fn remove_internal(
-        &self,
-        key: &Key,
-    ) -> core::result::Result<(), InternalGroupcacheError> {
-        self.hot_cache.remove(key).await;
-
-        let peer = {
-            let lock = self.routing_state.read().unwrap();
-            lock.peer_for_key(key)?
-        };
-
-        if peer == self.me {
-            self.cache.remove(key).await;
-        } else {
-            // remove remotely..
-        }
-
-        Ok(())
     }
 
     async fn get_internal(&self, key: &Key) -> Result<Value, InternalGroupcacheError> {
@@ -159,6 +139,48 @@ impl<Value: ValueBounds> Groupcache<Value> {
         Ok(value)
     }
 
+    async fn remove_internal(
+        &self,
+        key: &Key,
+    ) -> core::result::Result<(), InternalGroupcacheError> {
+        self.hot_cache.remove(key).await;
+
+        let peer = {
+            let lock = self.routing_state.read().unwrap();
+            lock.peer_for_key(key)?
+        };
+
+        if peer == self.me {
+            self.cache.remove(key).await;
+        } else {
+            self.remove_remotely(key, peer).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn remove_remotely(
+        &self,
+        key: &Key,
+        peer: Peer,
+    ) -> core::result::Result<(), InternalGroupcacheError> {
+        let mut client = {
+            let read_lock = self.routing_state.read().unwrap();
+            read_lock.client_for_peer(&peer)?
+        };
+
+        let _ = client
+            .remove(
+                RemoveRequest {
+                    key: key.to_string(),
+                }
+                .into_request(),
+            )
+            .await?;
+
+        Ok(())
+    }
+
     pub(crate) async fn add_peer(&self, peer: Peer) -> Result<()> {
         let contains_peer = {
             let read_lock = self.routing_state.read().unwrap();
@@ -169,8 +191,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
             return Ok(());
         }
 
-        let peer_server_address = format!("http://{}", peer.socket.clone());
-        let client = GroupcacheClient::connect(peer_server_address).await?;
+        let client = GroupcacheClient::connect(peer.addr()).await?;
 
         let mut write_lock = self.routing_state.write().unwrap();
         write_lock.add_peer(peer, client);

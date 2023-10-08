@@ -26,6 +26,11 @@ impl<Value: ValueBounds> groupcache_server::Groupcache for Groupcache<Value> {
         &self,
         request: Request<RemoveRequest>,
     ) -> Result<Response<RemoveResponse>, Status> {
-        todo!()
+        let payload = request.into_inner();
+
+        match self.remove(&payload.key).await {
+            Ok(_) => Ok(Response::new(RemoveResponse {})),
+            Err(err) => Err(Status::internal(err.to_string())),
+        }
     }
 }

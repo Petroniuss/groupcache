@@ -49,6 +49,12 @@ pub struct Peer {
     socket: SocketAddr,
 }
 
+impl Peer {
+    pub(crate) fn addr(&self) -> String {
+        format!("http://{}", self.socket.clone())
+    }
+}
+
 impl From<SocketAddr> for Peer {
     fn from(value: SocketAddr) -> Self {
         Self { socket: value }
@@ -77,7 +83,7 @@ type PeerClient = GroupcacheClient<Channel>;
 pub struct GroupcacheOptions {
     pub cache_capacity: Option<u64>,
     pub hot_cache_capacity: Option<u64>,
-    pub hot_cache_timeout_seconds: Option<Duration>,
+    pub hot_cache_ttl: Option<Duration>,
 }
 
 pub(crate) struct Options {
@@ -106,9 +112,7 @@ impl From<GroupcacheOptions> for Options {
             .hot_cache_capacity
             .unwrap_or(default.hot_cache_capacity);
 
-        let hot_cache_timeout_seconds = value
-            .hot_cache_timeout_seconds
-            .unwrap_or(default.hot_cache_ttl);
+        let hot_cache_timeout_seconds = value.hot_cache_ttl.unwrap_or(default.hot_cache_ttl);
 
         Self {
             cache_capacity,
