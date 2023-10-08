@@ -53,6 +53,30 @@ impl<Value: ValueBounds> Groupcache<Value> {
         Ok(self.get_internal(key).await?)
     }
 
+    pub(crate) async fn remove(&self, key: &Key) -> core::result::Result<(), GroupcacheError> {
+        Ok(self.remove_internal(key).await?)
+    }
+
+    pub(crate) async fn remove_internal(
+        &self,
+        key: &Key,
+    ) -> core::result::Result<(), InternalGroupcacheError> {
+        self.hot_cache.remove(key).await;
+
+        let peer = {
+            let lock = self.routing_state.read().unwrap();
+            lock.peer_for_key(key)?
+        };
+
+        if peer == self.me {
+            self.cache.remove(key).await;
+        } else {
+            // remove remotely..
+        }
+
+        Ok(())
+    }
+
     async fn get_internal(&self, key: &Key) -> Result<Value, InternalGroupcacheError> {
         if let Some(value) = self.cache.get(key).await {
             return Ok(value);

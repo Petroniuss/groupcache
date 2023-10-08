@@ -23,6 +23,10 @@ impl<Value: ValueBounds> GroupcacheWrapper<Value> {
         self.0.get(key).await
     }
 
+    pub async fn remove(&self, key: &Key) -> core::result::Result<(), GroupcacheError> {
+        self.0.remove(key).await
+    }
+
     pub async fn add_peer(&self, peer: Peer) -> Result<()> {
         self.0.add_peer(peer).await
     }

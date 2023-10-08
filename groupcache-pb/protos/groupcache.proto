@@ -10,7 +10,13 @@ message GetResponse {
   optional bytes value = 1;
 }
 
+message RemoveRequest {
+  string key = 1;
+}
+
+message RemoveResponse {}
+
 service Groupcache {
-  rpc Get(GetRequest) returns (GetResponse) {
-  };
+  rpc Get(GetRequest) returns (GetResponse) {};
+  rpc Remove(RemoveRequest) returns (RemoveResponse) {};
 }
