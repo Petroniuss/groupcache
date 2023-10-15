@@ -17,6 +17,7 @@ rmp-serde = "1.1.2"
 async-trait = "0.1.72"
 singleflight-async = "0.1.1"
 moka = { version = "0.12.1", features = ["future"] }
+metrics = "0.21.1"
 
 [dev-dependencies]
 cargo-husky = { workspace = true }
