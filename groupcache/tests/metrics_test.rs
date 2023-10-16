@@ -5,6 +5,7 @@ use common::*;
 use metrics::{Counter, CounterFn, Gauge, Histogram, Key, KeyName, Recorder, SharedString, Unit};
 use pretty_assertions::assert_eq;
 use rstest::{fixture, rstest};
+use serial_test::serial as serial_test;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -36,8 +37,8 @@ pub async fn groupcache() -> TestGroupcache {
 #[case::get("groupcache.get_total")]
 #[case::local_load("groupcache.local_load_total")]
 #[tokio::test]
-#[serial_test::serial]
-pub async fn metrics_on_first_load_test(
+#[serial_test]
+pub async fn metrics_on_fresh_local_load(
     clean_recorder: &'static MockRecorder,
     #[future] groupcache: TestGroupcache,
     #[case] metric_name: &str,
@@ -46,27 +47,32 @@ pub async fn metrics_on_first_load_test(
 
     let counter_value = clean_recorder
         .counter_value(metric_name)
-        .context("should be set")?;
+        .context(format!("metric '{}' should be set", metric_name))?;
 
     assert_eq!(1, counter_value);
     Ok(())
 }
 
+#[rstest]
+#[case::get("groupcache.get_total", 2)]
+#[case::local_load("groupcache.local_load_total", 1)]
+#[case::cache_hit("groupcache.local_cache_hit_total", 1)]
 #[tokio::test]
-async fn test_foo() -> Result<()> {
-    let (instance_one, instance_two) = two_connected_instances().await?;
-    let key_on_instance_2 = error_key_on_instance(instance_two.clone());
+#[serial_test]
+pub async fn metrics_on_cached_local_load(
+    clean_recorder: &'static MockRecorder,
+    #[future(awt)] groupcache: TestGroupcache,
+    #[case] metric_name: &str,
+    #[case] expected_count: u64,
+) -> Result<()> {
+    let _ = groupcache.get("same-key").await?;
+    let _ = groupcache.get("same-key").await?;
 
-    let err = instance_one
-        .get(&key_on_instance_2)
-        .await
-        .expect_err("expected error from loader");
+    let counter_value = clean_recorder
+        .counter_value(metric_name)
+        .context(format!("metric '{}' should be set", metric_name))?;
 
-    assert_eq!(
-        "Transport error: 'Loading error: 'Something bad happened during loading :/''",
-        err.to_string()
-    );
-
+    assert_eq!(expected_count, counter_value);
     Ok(())
 }
 
