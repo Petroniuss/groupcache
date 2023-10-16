@@ -47,10 +47,10 @@ pub async fn groupcache_tuple() -> (TestGroupcache, TestGroupcache) {
 #[serial_test]
 pub async fn metrics_on_fresh_local_load(
     clean_recorder: &'static MockRecorder,
-    #[future] groupcache: TestGroupcache,
+    #[future(awt)] groupcache: TestGroupcache,
     #[case] metric_name: &str,
 ) -> Result<()> {
-    let _ = groupcache.await.get("foo").await?;
+    let _ = groupcache.get("foo").await?;
 
     let counter_value = clean_recorder
         .counter_value(metric_name)
@@ -67,10 +67,10 @@ pub async fn metrics_on_fresh_local_load(
 #[serial_test]
 pub async fn metrics_on_load_failure(
     clean_recorder: &'static MockRecorder,
-    #[future] groupcache: TestGroupcache,
+    #[future(awt)] groupcache: TestGroupcache,
     #[case] metric_name: &str,
 ) -> Result<()> {
-    let res = groupcache.await.get("error").await;
+    let res = groupcache.get("error").await;
     assert!(res.is_err());
 
     let counter_value = clean_recorder
