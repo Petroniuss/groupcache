@@ -10,6 +10,8 @@ use singleflight_async::SingleFlight;
 use std::sync::{Arc, RwLock};
 use tonic::IntoRequest;
 
+const METRIC_GET_TOTAL: &str = "groupcache.get_total";
+pub(crate) const METRIC_GET_SERVER_REQUESTS_TOTAL: &str = "groupcache.get_server_requests_total";
 const METRIC_LOCAL_CACHE_HIT_TOTAL: &str = "groupcache.local_cache_hit_total";
 const METRIC_LOCAL_LOAD_TOTAL: &str = "groupcache.local_load_total";
 const METRIC_LOCAL_LOAD_ERROR_TOTAL: &str = "groupcache.local_load_errors";
@@ -65,6 +67,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
     }
 
     async fn get_internal(&self, key: &Key) -> Result<Value, InternalGroupcacheError> {
+        counter!(METRIC_GET_TOTAL, 1);
         if let Some(value) = self.cache.get(key).await {
             counter!(METRIC_LOCAL_CACHE_HIT_TOTAL, 1);
             return Ok(value);
