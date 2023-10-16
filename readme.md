@@ -16,13 +16,14 @@ test.sh
 - [x] Integration tests.
 - [x] Implement hot cache - caching items that are owned by different peers but are frequently loaded:
   - Not sure how I want to approach this, if I intend to implement API to removing value from groupcache.
-- [ ] Implement API to expire items from groupcache.
-- [ ] Expose timeouts as a configuration option.
-- [ ] Expose metrics from the library:
-  - [ ] Struct with a bunch of atomic ints.
-  - [ ] Implement Prometheus Exporter crate for metrics.
+- [x] Implement API to remove items from groupcache.
+- [x] Expose metrics from the library:
+  - [x] Struct with a bunch of atomic ints -> solved by metrics crate
+  - [x] Implement Prometheus Exporter crate for metrics. -> solved by metrics_exporter_prometheus crate
 - [ ] Usability:
     - [ ] Create basic example showing how to run groupcache alongside a simple axum server.
     - [ ] Prepare Documentation.
+    - [ ] Example with service discovery with consul in k8s.
+- [ ] Expose timeouts for remote cache loads as a configuration option.
 - ...
 - [ ] Publish to crates.io

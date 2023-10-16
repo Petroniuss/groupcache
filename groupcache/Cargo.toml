@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 groupcache-pb = { path = "../groupcache-pb" }
 tonic = "0.10.0"
-
 hashring = "0.3.2"
 anyhow = "1.0.72"
 thiserror = "1.0.48"
@@ -17,9 +16,12 @@ rmp-serde = "1.1.2"
 async-trait = "0.1.72"
 singleflight-async = "0.1.1"
 moka = { version = "0.12.1", features = ["future"] }
+metrics = "0.21.1"
 
 [dev-dependencies]
 cargo-husky = { workspace = true }
 pretty_assertions = "1.4.0"
 tokio-stream = { version = "0.1.14", features = ["net"] }
 tokio = { version = "1.12.0", features = ["time", "test-util", "rt", "macros"] }
+rstest = "0.18.2"
+serial_test = "2.0.0"

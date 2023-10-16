@@ -4,10 +4,19 @@ use crate::{Key, Options, Peer, ValueBounds, ValueLoader};
 use anyhow::Result;
 use groupcache_pb::groupcache_pb::groupcache_client::GroupcacheClient;
 use groupcache_pb::groupcache_pb::{GetRequest, RemoveRequest};
+use metrics::counter;
 use moka::future::Cache;
 use singleflight_async::SingleFlight;
 use std::sync::{Arc, RwLock};
 use tonic::IntoRequest;
+
+const METRIC_GET_TOTAL: &str = "groupcache.get_total";
+pub(crate) const METRIC_GET_SERVER_REQUESTS_TOTAL: &str = "groupcache.get_server_requests_total";
+const METRIC_LOCAL_CACHE_HIT_TOTAL: &str = "groupcache.local_cache_hit_total";
+const METRIC_LOCAL_LOAD_TOTAL: &str = "groupcache.local_load_total";
+const METRIC_LOCAL_LOAD_ERROR_TOTAL: &str = "groupcache.local_load_errors";
+const METRIC_REMOTE_LOAD_TOTAL: &str = "groupcache.remote_load_total";
+const METRIC_REMOTE_LOAD_ERROR: &str = "groupcache.remote_load_errors";
 
 pub struct Groupcache<Value: ValueBounds> {
     routing_state: Arc<RwLock<RoutingState>>,
@@ -58,11 +67,14 @@ impl<Value: ValueBounds> Groupcache<Value> {
     }
 
     async fn get_internal(&self, key: &Key) -> Result<Value, InternalGroupcacheError> {
+        counter!(METRIC_GET_TOTAL, 1);
         if let Some(value) = self.cache.get(key).await {
+            counter!(METRIC_LOCAL_CACHE_HIT_TOTAL, 1);
             return Ok(value);
         }
 
         if let Some(value) = self.hot_cache.get(key).await {
+            counter!(METRIC_LOCAL_CACHE_HIT_TOTAL, 1);
             return Ok(value);
         }
 
@@ -96,12 +108,20 @@ impl<Value: ValueBounds> Groupcache<Value> {
 
     async fn dedup_get(&self, key: &Key, peer: Peer) -> Result<Value, InternalGroupcacheError> {
         let value = if peer == self.me {
-            let value = self.load_locally(key).await?;
+            counter!(METRIC_LOCAL_LOAD_TOTAL, 1);
+            let value = self.load_locally(key).await.map_err(|e| {
+                counter!(METRIC_LOCAL_LOAD_ERROR_TOTAL, 1);
+                e
+            })?;
             self.cache.insert(key.to_string(), value.clone()).await;
 
             value
         } else {
-            let value = self.load_remotely(key, peer).await?;
+            counter!(METRIC_REMOTE_LOAD_TOTAL, 1);
+            let value = self.load_remotely(key, peer).await.map_err(|e| {
+                counter!(METRIC_REMOTE_LOAD_ERROR, 1);
+                e
+            })?;
             self.hot_cache.insert(key.to_string(), value.clone()).await;
 
             value

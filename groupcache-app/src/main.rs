@@ -136,7 +136,7 @@ async fn get_key_handler(
 ) -> Response {
     log::info!("get_rpc_handler, {}!", key);
 
-    return match groupcache.get(&key).await {
+    match groupcache.get(&key).await {
         Ok(value) => {
             let value = value.plain_string;
             let response_body = GetResponse { key, value };
@@ -151,7 +151,7 @@ async fn get_key_handler(
 
             (StatusCode::INTERNAL_SERVER_ERROR, Json(response_body)).into_response()
         }
-    };
+    }
 }
 
 async fn add_peer_handler(
