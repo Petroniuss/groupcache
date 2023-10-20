@@ -8,6 +8,12 @@ Make sure all dependencies are installed and running (see below).
 kubectl apply -f k8s/groupcache-powered-backend-deployment.yaml
 ```
 
+POD_IP is reachable from other pods.
+Command to run to curl pods from inside the cluster:
+```bash
+kubectl run mycurlpod --image=curlimages/curl -i --tty -- sh
+```
+
 ## Dependencies
 
 ### Minikube
@@ -40,5 +46,5 @@ docker build . -t groupcache-powered-backend
 
 Load image in minikube;
 ```bash
-minikube image load groupcache-powered-backend
+minikube image load groupcache-powered-backend:latest
 ```

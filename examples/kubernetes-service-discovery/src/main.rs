@@ -27,28 +27,20 @@ use tracing::{error, info, log, Level};
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let port = read_env("PORT")?.parse::<u16>()?;
-
     let pod_port = read_env("K8S_POD_PORT")?;
-    let pod_ip_addr = read_env("K8S_POD_IP")?;
+    let pod_ip = read_env("K8S_POD_IP")?;
     let pod_name = read_env("K8S_POD_NAME")?;
     let namespace = read_env("K8S_NAMESPACE")?;
     info!(
-        "{}",
-        format!(
-            r#"
-    Running groupcache on kubernetes pod:
-        K8S_POD_IP: {},
-        K8S_POD_PORT: {},
-        K8S_POD_NAME: {},
-        K8S_NAMESPACE: {},
-        PORT: {}
-    "#,
-            pod_ip_addr, pod_port, pod_name, namespace, port
-        )
+        r#" Running {}:
+            K8S_POD_IP: {},
+            K8S_POD_PORT: {},
+            K8S_NAMESPACE: {},
+        "#,
+        pod_name, pod_ip, pod_port, namespace
     );
 
-    let addr: SocketAddr = format!("127.0.0.1:{}", port).parse()?;
+    let addr: SocketAddr = format!("{}:{}", pod_ip, pod_port).parse()?;
 
     // Groupcache instance, configured to respond to requests under `addr`
     let groupcache = configure_groupcache(addr).await?;
