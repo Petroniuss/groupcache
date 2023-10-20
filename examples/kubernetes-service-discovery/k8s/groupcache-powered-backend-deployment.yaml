@@ -16,19 +16,20 @@ spec:
     spec:
       containers:
         - name: groupcache-powered-backend
-          imagePullPolicy: IfNotPresent
-          image: groupcache-powered-backend:latest
+          image: groupcache-powered-backend:0.0.2
           ports:
             - containerPort: 3000
           env:
             - name: RUST_LOG
-              value: "info"
+              value: "INFO"
             - name: PORT
               value: "3000"
             - name: K8S_POD_IP
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
+            - name: K8S_POD_PORT
+              value: "3000"
             - name: K8S_NODE_NAME
               valueFrom:
                 fieldRef:

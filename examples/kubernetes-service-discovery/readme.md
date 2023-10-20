@@ -1,5 +1,12 @@
 # kubernetes-service-discovery example
 
+## Running service on groupcache
+
+Make sure all dependencies are installed and running (see below).
+
+```bash
+kubectl apply -f k8s/groupcache-powered-backend-deployment.yaml
+```
 
 ## Dependencies
 

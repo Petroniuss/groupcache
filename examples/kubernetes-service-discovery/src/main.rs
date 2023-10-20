@@ -33,8 +33,10 @@ async fn main() -> Result<()> {
     let pod_ip_addr = read_env("K8S_POD_IP")?;
     let pod_name = read_env("K8S_POD_NAME")?;
     let namespace = read_env("K8S_NAMESPACE")?;
-    let _shader = format!(
-        r#"
+    info!(
+        "{}",
+        format!(
+            r#"
     Running groupcache on kubernetes pod:
         K8S_POD_IP: {},
         K8S_POD_PORT: {},
@@ -42,7 +44,8 @@ async fn main() -> Result<()> {
         K8S_NAMESPACE: {},
         PORT: {}
     "#,
-        pod_ip_addr, pod_port, pod_name, namespace, port
+            pod_ip_addr, pod_port, pod_name, namespace, port
+        )
     );
 
     let addr: SocketAddr = format!("127.0.0.1:{}", port).parse()?;
