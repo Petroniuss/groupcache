@@ -9,7 +9,7 @@ Steps how to run kubernetes:
 
 ### Minikube
 
-Download minikube using your preferred method.
+Download minikube using your preferred method https://minikube.sigs.k8s.io/docs/start/.
 
 Start kubernetes locally:
 ```bash

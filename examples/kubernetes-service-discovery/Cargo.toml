@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-groupcache = { path = "../../groupcache" }
+groupcache = { git = "https://github.com/Petroniuss/groupcache.git" }
 
 tonic = "0.10.0"
 axum = "0.6.20"
