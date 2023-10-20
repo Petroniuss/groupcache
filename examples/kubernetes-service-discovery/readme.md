@@ -1,9 +1,5 @@
 # kubernetes-service-discovery example
 
-Steps how to run kubernetes:
-```bash
-
-```
 
 ## Dependencies
 
@@ -27,3 +23,15 @@ https://stackoverflow.com/questions/40720979/how-to-access-kubernetes-api-when-u
 
 kubectl config location:
 '/Users/pwojtyczek/.kube/config'
+
+### Building backend
+
+To build example as a docker image run:
+```bash
+docker build . -t groupcache-powered-backend
+```
+
+Load image in minikube;
+```bash
+minikube image load groupcache-powered-backend
+```

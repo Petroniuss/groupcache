@@ -1,6 +1,8 @@
+mod cache;
+
+use crate::cache::{configure_groupcache, CachedValue};
+use anyhow::Context;
 use anyhow::Result;
-use anyhow::{anyhow, Context};
-use async_trait::async_trait;
 use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::header::CONTENT_TYPE;
@@ -8,12 +10,11 @@ use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use axum::{Json, Router};
-use groupcache::{GroupcacheWrapper, Key};
+use groupcache::GroupcacheWrapper;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::env;
 use std::net::SocketAddr;
-use std::time::Duration;
 use tower::make::Shared;
 use tower::steer::Steer;
 use tower::ServiceExt;
@@ -26,13 +27,24 @@ use tracing::{error, info, log, Level};
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    // todo: figure this out!
-    // kubernetes may put as at any port and any IP
-    // we need to have that information at start?
+    let port = read_env("PORT")?.parse::<u16>()?;
 
-    let port = env::var("PORT")
-        .unwrap_or_else(|_| "3000".to_string())
-        .parse::<u16>()?;
+    let pod_port = read_env("K8S_POD_PORT")?;
+    let pod_ip_addr = read_env("K8S_POD_IP")?;
+    let pod_name = read_env("K8S_POD_NAME")?;
+    let namespace = read_env("K8S_NAMESPACE")?;
+    let _shader = format!(
+        r#"
+    Running groupcache on kubernetes pod:
+        K8S_POD_IP: {},
+        K8S_POD_PORT: {},
+        K8S_POD_NAME: {},
+        K8S_NAMESPACE: {},
+        PORT: {}
+    "#,
+        pod_ip_addr, pod_port, pod_name, namespace, port
+    );
+
     let addr: SocketAddr = format!("127.0.0.1:{}", port).parse()?;
 
     // Groupcache instance, configured to respond to requests under `addr`
@@ -67,12 +79,17 @@ async fn main() -> Result<()> {
         },
     );
 
+    info!("Listening on addr: {}", addr);
     axum::Server::bind(&addr)
         .serve(Shared::new(http_grpc))
         .await
         .context("Failed to start axum server")?;
 
     Ok(())
+}
+
+fn read_env(env_var_name: &'static str) -> Result<String> {
+    env::var(env_var_name).context(format!("Failed to read: '{}' env variable", env_var_name))
 }
 
 // async fn kube() -> Result<()> {
@@ -87,43 +104,6 @@ async fn main() -> Result<()> {
 //     dbg!(service);
 //     Ok(())
 // }
-
-struct CacheLoader {}
-
-#[derive(Clone, Deserialize, Serialize)]
-struct CachedValue {
-    plain_string: String,
-}
-
-#[async_trait]
-impl groupcache::ValueLoader for CacheLoader {
-    type Value = CachedValue;
-
-    async fn load(
-        &self,
-        key: &Key,
-    ) -> std::result::Result<Self::Value, Box<dyn std::error::Error + Send + Sync + 'static>> {
-        use tokio::time::sleep;
-        info!("Starting a long computation for {} .. about a 100ms.", key);
-
-        sleep(Duration::from_millis(100)).await;
-
-        return if key.contains("error") {
-            Err(anyhow!("Something bad happened during loading :/").into())
-        } else {
-            Ok(CachedValue {
-                plain_string: "bar".to_string(),
-            })
-        };
-    }
-}
-
-async fn configure_groupcache(socket: SocketAddr) -> Result<GroupcacheWrapper<CachedValue>> {
-    let loader = CacheLoader {};
-    let groupcache = GroupcacheWrapper::new(socket.into(), Box::new(loader));
-
-    Ok(groupcache)
-}
 
 fn trace() -> TraceLayer<SharedClassifier<ServerErrorsAsFailures>> {
     TraceLayer::new_for_http()

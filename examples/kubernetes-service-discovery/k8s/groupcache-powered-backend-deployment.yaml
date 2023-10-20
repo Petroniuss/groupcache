@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: groupcache-powered-backend-deployment
+  labels:
+    app: groupcache-powered-backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: groupcache-powered-backend
+  template:
+    metadata:
+      labels:
+        app: groupcache-powered-backend
+    spec:
+      containers:
+        - name: groupcache-powered-backend
+          imagePullPolicy: IfNotPresent
+          image: groupcache-powered-backend:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: RUST_LOG
+              value: "info"
+            - name: PORT
+              value: "3000"
+            - name: K8S_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: K8S_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: K8S_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
