@@ -8,9 +8,12 @@ use axum::extract::{Path, State};
 use axum::http::header::CONTENT_TYPE;
 use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, put};
+use axum::routing::get;
 use axum::{Json, Router};
 use groupcache::GroupcacheWrapper;
+use k8s_openapi::api::core::v1::Pod;
+use kube::api::ListParams;
+use kube::{Api, Client};
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::env;
@@ -45,11 +48,11 @@ async fn main() -> Result<()> {
     // Groupcache instance, configured to respond to requests under `addr`
     let groupcache = configure_groupcache(addr).await?;
 
-    // Example axum app with endpoints to add groupcache peers and retrieve values from groupcache.
+    // Example axum app with endpoints to retrieve values from groupcache.
     let axum_app = Router::new()
-        .route("/root", get(root))
+        .route("/", get(hello))
+        .route("/root", get(hello))
         .route("/key/:key_id", get(get_key_handler))
-        .route("/peer/:peer_addr", put(add_peer_handler))
         .with_state(groupcache.clone())
         .layer(trace())
         .boxed_clone();
@@ -74,6 +77,8 @@ async fn main() -> Result<()> {
         },
     );
 
+    kube(groupcache).await?;
+
     info!("Listening on addr: {}", addr);
     axum::Server::bind(&addr)
         .serve(Shared::new(http_grpc))
@@ -87,18 +92,23 @@ fn read_env(env_var_name: &'static str) -> Result<String> {
     env::var(env_var_name).context(format!("Failed to read: '{}' env variable", env_var_name))
 }
 
-// async fn kube() -> Result<()> {
-//     let namespace = "kube-system";
-//     let client = Client::try_default().await?;
-//     let services: Api<Pod> = Api::namespaced(client, namespace);
-//     let service_name = "etcd-minikube";
-//
-//     // Fetch the service object
-//     let service = services.get(service_name).await?;
-//
-//     dbg!(service);
-//     Ok(())
-// }
+async fn kube(_groupcache: GroupcacheWrapper<CachedValue>) -> Result<()> {
+    let client = Client::try_default().await?;
+    let pods_api: Api<Pod> = Api::default_namespaced(client);
+
+    let lp = ListParams::default().labels("app=groupcache-powered-backend");
+    let pods = pods_api.list(&lp).await?;
+    for pod in pods {
+        info!("Found pod: {:?}", pod);
+        let status = pod.status.context("Failed to read pod status")?;
+        let phase = status.phase.context("Failed to read pod phase")?;
+        if phase != "Running" {
+            continue;
+        }
+    }
+
+    Ok(())
+}
 
 fn trace() -> TraceLayer<SharedClassifier<ServerErrorsAsFailures>> {
     TraceLayer::new_for_http()
@@ -147,21 +157,6 @@ async fn get_key_handler(
     }
 }
 
-async fn add_peer_handler(
-    Path(peer_address): Path<String>,
-    State(groupcache): State<GroupcacheWrapper<CachedValue>>,
-) -> StatusCode {
-    let Ok(socket) = peer_address.parse::<SocketAddr>() else {
-        return StatusCode::BAD_REQUEST;
-    };
-
-    let Ok(_) = groupcache.add_peer(socket.into()).await else {
-        return StatusCode::INTERNAL_SERVER_ERROR;
-    };
-
-    StatusCode::OK
-}
-
-async fn root() -> &'static str {
-    "Hello, World!"
+async fn hello() -> &'static str {
+    "Hello from groupcache-powered-backend-service!\n"
 }

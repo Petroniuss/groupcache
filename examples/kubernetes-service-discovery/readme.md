@@ -14,6 +14,31 @@ Command to run to curl pods from inside the cluster:
 kubectl run mycurlpod --image=curlimages/curl -i --tty -- sh
 ```
 
+Find groupcache pod ips:
+```bash
+kubectl get pod -o wide
+```
+
+Inside the curl pod run:
+```bash
+curl ${GRPUCACHE_POD_ID}:3000
+```
+
+To cleanup curl pod run
+```bash
+kubectl exec -i --tty mycurlpod -- sh
+```
+or 
+```bash
+kubectl delete pod mycurlpod
+```
+
+To get all pods:
+```bash
+kubectl get pods --selector=app=groupcache-powered-backend -o wide
+```
+
+
 ## Dependencies
 
 ### Minikube
