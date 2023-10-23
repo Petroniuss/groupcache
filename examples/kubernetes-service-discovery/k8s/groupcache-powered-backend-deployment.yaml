@@ -4,6 +4,10 @@ metadata:
   name: groupcache-powered-backend-deployment
   labels:
     app: groupcache-powered-backend
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: "/metrics"
+    prometheus.io/port: "3000"
 spec:
   replicas: 3
   selector:
@@ -16,7 +20,7 @@ spec:
     spec:
       containers:
         - name: groupcache-powered-backend
-          image: groupcache-powered-backend:0.0.5
+          image: groupcache-powered-backend:0.0.6
           ports:
             - containerPort: 3000
           env:
