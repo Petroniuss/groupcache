@@ -5,6 +5,8 @@
 Make sure all dependencies are installed and running (see below).
 
 ```bash
+kubectl apply -f k8s/groupcache-powered-backend-role.yaml
+kubectl apply -f k8s/groupcache-powered-backend-role-binding.yaml
 kubectl apply -f k8s/groupcache-powered-backend-deployment.yaml
 ```
 

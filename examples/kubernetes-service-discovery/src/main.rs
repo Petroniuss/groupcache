@@ -1,5 +1,4 @@
 mod cache;
-
 use crate::cache::{configure_groupcache, CachedValue};
 use anyhow::Context;
 use anyhow::Result;
@@ -45,6 +44,9 @@ async fn main() -> Result<()> {
 
     let addr: SocketAddr = format!("{}:{}", pod_ip, pod_port).parse()?;
 
+    // prometheus metrics
+    let (prometheus_layer, metric_handle) = axum_prometheus::PrometheusMetricLayer::pair();
+
     // Groupcache instance, configured to respond to requests under `addr`
     let groupcache = configure_groupcache(addr).await?;
 
@@ -54,6 +56,8 @@ async fn main() -> Result<()> {
         .route("/root", get(hello))
         .route("/key/:key_id", get(get_key_handler))
         .with_state(groupcache.clone())
+        .route("/metrics", get(|| async move { metric_handle.render() }))
+        .layer(prometheus_layer)
         .layer(trace())
         .boxed_clone();
 
@@ -77,7 +81,7 @@ async fn main() -> Result<()> {
         },
     );
 
-    kube(groupcache).await?;
+    let _ = kube(groupcache).await;
 
     info!("Listening on addr: {}", addr);
     axum::Server::bind(&addr)
