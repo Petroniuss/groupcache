@@ -1,4 +1,5 @@
 mod cache;
+
 use crate::cache::{configure_groupcache, CachedValue};
 use anyhow::Context;
 use anyhow::Result;
@@ -14,15 +15,18 @@ use k8s_openapi::api::core::v1::Pod;
 use kube::api::ListParams;
 use kube::{Api, Client};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::env;
 use std::net::SocketAddr;
+use std::time::Duration;
 use tower::make::Shared;
 use tower::steer::Steer;
 use tower::ServiceExt;
 use tower_http::classify::{ServerErrorsAsFailures, SharedClassifier};
 use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tower_http::LatencyUnit;
+use tracing::log::warn;
 use tracing::{error, info, log, Level};
 
 #[tokio::main]
@@ -81,10 +85,57 @@ async fn main() -> Result<()> {
         },
     );
 
-    let _ = kube(groupcache).await;
+    let client = Client::try_default().await?;
+    let pods_api: Api<Pod> = Api::default_namespaced(client);
+    tokio::spawn(async move {
+        let mut current_pods = Box::<HashSet<GroupcachePod>>::default();
+        loop {
+            let result = find_pods(&pods_api).await;
+            let mut new_current_pods = HashSet::new();
+            match result {
+                Ok(pods) => {
+                    info!("Found {} groupcache pods", pods.len());
+                    for dead_pod in current_pods.difference(&pods) {
+                        let pod_addr = dead_pod.addr;
+                        let res = groupcache.remove_peer(pod_addr.into()).await;
+                        match res {
+                            Ok(_) => {
+                                info!("Removed peer: {:?} from groupcache cluster", dead_pod);
+                            }
+                            Err(e) => {
+                                warn!("Failed to remove peer from groupcache cluster: {}", e);
+                            }
+                        }
+                    }
+
+                    for new_pod in pods.difference(&current_pods) {
+                        let pod_addr = new_pod.addr;
+                        let res = groupcache.add_peer(pod_addr.into()).await;
+                        match res {
+                            Ok(_) => {
+                                info!("Added peer: {:?} to groupcache cluster", new_pod);
+                                new_current_pods.insert(new_pod.clone());
+                            }
+                            Err(e) => {
+                                warn!("Failed to add peer to groupcache cluster: {}", e);
+                            }
+                        }
+                    }
+
+                    *current_pods = new_current_pods;
+                }
+                Err(e) => {
+                    warn!("Failed to refresh groupcache nodes: {}", e);
+                }
+            }
+
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+    });
 
     info!("Listening on addr: {}", addr);
-    axum::Server::bind(&addr)
+    let bind_addr = format!("127.0.0.1:{}", pod_port).parse()?;
+    axum::Server::bind(&bind_addr)
         .serve(Shared::new(http_grpc))
         .await
         .context("Failed to start axum server")?;
@@ -92,26 +143,38 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+#[derive(Eq, PartialEq, Hash, Debug, Clone)]
+struct GroupcachePod {
+    addr: SocketAddr,
+}
+
 fn read_env(env_var_name: &'static str) -> Result<String> {
     env::var(env_var_name).context(format!("Failed to read: '{}' env variable", env_var_name))
 }
 
-async fn kube(_groupcache: GroupcacheWrapper<CachedValue>) -> Result<()> {
-    let client = Client::try_default().await?;
-    let pods_api: Api<Pod> = Api::default_namespaced(client);
-
+async fn find_pods(pods_api: &Api<Pod>) -> Result<HashSet<GroupcachePod>> {
+    // todo: cleanup
     let lp = ListParams::default().labels("app=groupcache-powered-backend");
     let pods = pods_api.list(&lp).await?;
-    for pod in pods {
-        info!("Found pod: {:?}", pod);
-        let status = pod.status.context("Failed to read pod status")?;
-        let phase = status.phase.context("Failed to read pod phase")?;
-        if phase != "Running" {
-            continue;
-        }
-    }
+    let pods = pods
+        .into_iter()
+        .filter(|e| {
+            e.status
+                .as_ref()
+                .map(|s| s.pod_ip.is_some())
+                .unwrap_or(false)
+        })
+        .filter_map(|pod| {
+            let Ok(ip) = pod.status.unwrap().pod_ip.unwrap().parse() else {
+                return None;
+            };
+            let port = 3000;
+            let addr = SocketAddr::new(ip, port);
+            Some(GroupcachePod { addr })
+        })
+        .collect::<HashSet<_>>();
 
-    Ok(())
+    Ok(pods)
 }
 
 fn trace() -> TraceLayer<SharedClassifier<ServerErrorsAsFailures>> {
