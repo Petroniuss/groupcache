@@ -90,7 +90,7 @@ async fn main() -> Result<()> {
     tokio::spawn(async move {
         let mut current_pods = Box::<HashSet<GroupcachePod>>::default();
         loop {
-            let result = find_pods(&pods_api).await;
+            let result = find_groupcache_pods(&pods_api, &pod_ip).await;
             let mut new_current_pods = HashSet::new();
             match result {
                 Ok(pods) => {
@@ -117,9 +117,16 @@ async fn main() -> Result<()> {
                                 new_current_pods.insert(new_pod.clone());
                             }
                             Err(e) => {
-                                warn!("Failed to add peer to groupcache cluster: {}", e);
+                                warn!(
+                                    "Failed to add peer {:?} to groupcache cluster: {}",
+                                    new_pod, e
+                                );
                             }
                         }
+                    }
+
+                    for pod in pods.intersection(&current_pods) {
+                        new_current_pods.insert(pod.clone());
                     }
 
                     *current_pods = new_current_pods;
@@ -134,7 +141,7 @@ async fn main() -> Result<()> {
     });
 
     info!("Listening on addr: {}", addr);
-    let bind_addr = format!("127.0.0.1:{}", pod_port).parse()?;
+    let bind_addr = format!("0.0.0.0:{}", pod_port).parse()?;
     axum::Server::bind(&bind_addr)
         .serve(Shared::new(http_grpc))
         .await
@@ -152,24 +159,24 @@ fn read_env(env_var_name: &'static str) -> Result<String> {
     env::var(env_var_name).context(format!("Failed to read: '{}' env variable", env_var_name))
 }
 
-async fn find_pods(pods_api: &Api<Pod>) -> Result<HashSet<GroupcachePod>> {
-    // todo: cleanup
-    let lp = ListParams::default().labels("app=groupcache-powered-backend");
-    let pods = pods_api.list(&lp).await?;
-    let pods = pods
+async fn find_groupcache_pods(pods_api: &Api<Pod>, my_ip: &str) -> Result<HashSet<GroupcachePod>> {
+    let pods_with_label_query = ListParams::default().labels("app=groupcache-powered-backend");
+    let pods = pods_api
+        .list(&pods_with_label_query)
+        .await?
         .into_iter()
-        .filter(|e| {
-            e.status
-                .as_ref()
-                .map(|s| s.pod_ip.is_some())
-                .unwrap_or(false)
-        })
         .filter_map(|pod| {
-            let Ok(ip) = pod.status.unwrap().pod_ip.unwrap().parse() else {
+            let status = pod.status?;
+            let pod_ip = status.pod_ip?;
+            if pod_ip == my_ip {
+                return None;
+            }
+
+            let Ok(ip) = pod_ip.parse() else {
                 return None;
             };
-            let port = 3000;
-            let addr = SocketAddr::new(ip, port);
+
+            let addr = SocketAddr::new(ip, 3000);
             Some(GroupcachePod { addr })
         })
         .collect::<HashSet<_>>();
