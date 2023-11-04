@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: groupcache-powered-backend
-          image: groupcache-powered-backend:0.0.12
+          image: groupcache-powered-backend:0.0.14
           ports:
             - containerPort: 3000
           env:

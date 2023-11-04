@@ -2,12 +2,12 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: k6-load-test
+  name: load-test-job
 spec:
   template:
     metadata:
       labels:
-        app: k6-load-test
+        app: load-test-job
     spec:
       containers:
         - name: k6
@@ -31,7 +31,7 @@ metadata:
   name: k6-scripts-configmap
 data:
   load-test.js: |-
-    import { check } from 'k6';
+    import {check} from 'k6';
     import http from 'k6/http';
     
     export let options = {
@@ -44,9 +44,11 @@ data:
     
     export default function () {
         let randomKey = (Math.random() + 1).toString(36).substring(2);
-        let url = `http://groupcache-powered-backend-service:80/get/${randomKey}`;
-        const res = http.get(url);
+        let url = `http://groupcache-powered-backend-service:80/key/${randomKey}`;
+        const res = http.get(url, {
+            tags: { name: 'groupcache-backend-get-endpoint' }
+        });
         check(res, {
-            'is OK 200': (r) => r.status === 200,
+            'is OK 200': (r) => r.status === 200
         });
     }

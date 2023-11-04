@@ -8,7 +8,7 @@ use axum::extract::{Path, State};
 use axum::http::header::CONTENT_TYPE;
 use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{any, get};
 use axum::{Json, Router};
 use groupcache::GroupcacheWrapper;
 use k8s_openapi::api::core::v1::Pod;
@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
         .route("/key/:key_id", get(get_key_handler))
         .with_state(groupcache.clone())
         .route("/metrics", get(|| async move { metric_handle.render() }))
+        .route("/*fallback", any(handler_404))
         .layer(prometheus_layer)
         .layer(trace())
         .boxed_clone();
@@ -229,6 +230,10 @@ async fn get_key_handler(
             (StatusCode::INTERNAL_SERVER_ERROR, Json(response_body)).into_response()
         }
     }
+}
+
+async fn handler_404() -> impl IntoResponse {
+    (StatusCode::NOT_FOUND, "nothing to see here\n")
 }
 
 async fn hello() -> &'static str {
