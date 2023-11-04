@@ -67,6 +67,10 @@ impl<T: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static> Val
 
 pub type Key = str;
 
+/// [ValueLoader]
+///
+/// Logic for loading a value for a particular key - which can be potentially expensive.
+/// Groupcache is responsible for calling load on whichever node is responsible for a particular key and caching that value.
 #[async_trait]
 pub trait ValueLoader: Send + Sync {
     type Value: ValueBounds;

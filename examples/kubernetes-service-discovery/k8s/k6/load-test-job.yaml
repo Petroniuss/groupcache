@@ -1,0 +1,58 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: load-test-job
+spec:
+  template:
+    metadata:
+      labels:
+        app: load-test-job
+    spec:
+      containers:
+        - name: k6
+          image: grafana/k6:latest
+          command:
+            - "/bin/sh"
+            - "-c"
+            - "k6 run /etc/k6/load-test.js"
+          volumeMounts:
+            - name: k6-scripts
+              mountPath: /etc/k6
+      restartPolicy: Never
+      volumes:
+        - name: k6-scripts
+          configMap:
+            name: k6-scripts-configmap
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-scripts-configmap
+data:
+  load-test.js: |-
+    import {check} from 'k6';
+    import http from 'k6/http';
+    
+    export let options = {
+        stages: [
+            {duration: '30s', target: 5},  // Ramp-up
+            {duration: '9m', target: 5},   // 
+            {duration: '30s', target: 0}   // Ramp-down
+        ]
+    };
+    
+    function random2CharString() {
+        return (Math.random() + 1).toString(36).substring(10);
+    }
+    
+    export default function () {
+        let randomKey = random2CharString();
+        let url = `http://groupcache-powered-backend-service:80/key/${randomKey}`;
+        const res = http.get(url, {
+            tags: { name: 'groupcache-backend-get-endpoint' }
+        });
+        check(res, {
+            'is OK 200': (r) => r.status === 200
+        });
+    }
