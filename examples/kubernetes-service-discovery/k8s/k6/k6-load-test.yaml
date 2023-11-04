@@ -31,14 +31,14 @@ metadata:
   name: k6-scripts-configmap
 data:
   load-test.js: |-
+    import { check } from 'k6';
     import http from 'k6/http';
-    import {sleep} from 'k6';
     
     export let options = {
         stages: [
-            {duration: '1m', target: 50},  // Ramp-up to 50 users over 1 minute
-            {duration: '3m', target: 50},  // Stay at 50 users for 3 minutes
-            {duration: '1m', target: 0}    // Ramp-down to 0 users over 1 minute
+            {duration: '5s', target: 3},  // Ramp-up to 5 users over 5 seconds
+            {duration: '20s', target: 3},  // Stay at 5 users for 10 seconds
+            {duration: '5s', target: 0}    // Ramp-down to 0 users over 5 seconds
         ]
     };
     
