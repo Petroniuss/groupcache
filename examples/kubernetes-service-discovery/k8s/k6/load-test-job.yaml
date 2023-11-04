@@ -36,14 +36,18 @@ data:
     
     export let options = {
         stages: [
-            {duration: '5s', target: 3},  // Ramp-up to 5 users over 5 seconds
-            {duration: '20s', target: 3},  // Stay at 5 users for 10 seconds
-            {duration: '5s', target: 0}    // Ramp-down to 0 users over 5 seconds
+            {duration: '15s', target: 3},  // Ramp-up to 5 users over 15 seconds
+            {duration: '2m', target: 3},  // Stay at 5 users for 2m seconds
+            {duration: '15s', target: 0}    // Ramp-down to 0 users over 15 seconds
         ]
     };
     
+    function random2CharString() {
+        return (Math.random() + 1).toString(36).substring(10);
+    }
+    
     export default function () {
-        let randomKey = (Math.random() + 1).toString(36).substring(2);
+        let randomKey = random2CharString();
         let url = `http://groupcache-powered-backend-service:80/key/${randomKey}`;
         const res = http.get(url, {
             tags: { name: 'groupcache-backend-get-endpoint' }
