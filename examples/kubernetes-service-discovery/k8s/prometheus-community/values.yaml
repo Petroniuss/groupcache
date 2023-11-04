@@ -8,4 +8,14 @@ prometheus-node-exporter:
 
 prometheus-pushgateway:
   enabled: false
-  
+
+global:
+  ## How frequently to scrape targets by default
+  ##
+  scrape_interval: 15s
+  ## How long until a scrape request times out
+  ##
+  scrape_timeout: 5s
+  ## How frequently to evaluate rules
+  ##
+  evaluation_interval: 3m
