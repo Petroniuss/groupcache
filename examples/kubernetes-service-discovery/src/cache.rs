@@ -6,7 +6,11 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use tracing::info;
 
-pub struct CacheLoader {}
+/// [CacheLoader] implements [groupcache::ValueLoader]
+///
+/// In this example no state is necessary,
+/// but typically [groupcache::ValueLoader] would store a reference to whatever resource the cache was protecting (database, external API etc).
+pub struct CacheLoader;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct CachedValue {
@@ -23,14 +27,13 @@ impl groupcache::ValueLoader for CacheLoader {
     ) -> std::result::Result<Self::Value, Box<dyn std::error::Error + Send + Sync + 'static>> {
         use tokio::time::sleep;
         info!("Starting a long computation for {} .. about a 100ms.", key);
-
         sleep(Duration::from_millis(100)).await;
 
         return if key.contains("error") {
             Err(anyhow!("Something bad happened during loading :/").into())
         } else {
             Ok(CachedValue {
-                plain_string: "bar".to_string(),
+                plain_string: format!("Computed Value: {}", key),
             })
         };
     }

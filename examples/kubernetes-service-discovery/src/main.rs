@@ -29,6 +29,16 @@ use tower_http::LatencyUnit;
 use tracing::log::warn;
 use tracing::{error, info, log, Level};
 
+static SERVICE_DISCOVERY_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
+
+/// kubernetes-service-discovery example
+///
+/// This example shows how to run a simple backend with groupcache with multiple instances on k8s.
+/// Kubernetes API server is used for service discovery.
+/// A simple endpoint is exposed `/key/:key_id` that loads a value for :key_id from groupcache,
+/// which mocks a fetch from database lasting 100ms (see [cache::CacheLoader]).
+///
+/// If you want to run it locally, see readme.
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -48,16 +58,17 @@ async fn main() -> Result<()> {
 
     let addr: SocketAddr = format!("{}:{}", pod_ip, pod_port).parse()?;
 
-    // prometheus metrics
+    // Prometheus metrics
     let (prometheus_layer, metric_handle) = axum_prometheus::PrometheusMetricLayer::pair();
 
     // Groupcache instance, configured to respond to requests under `addr`
+    // It doesn't by itself start an gRPC server, this is done later.
     let groupcache = configure_groupcache(addr).await?;
 
-    // Example axum app with endpoints to retrieve values from groupcache.
+    // Example axum app with endpoint to retrieve value from groupcache.
     let axum_app = Router::new()
         .route("/", get(hello))
-        .route("/root", get(hello))
+        .route("/hello", get(hello))
         .route("/key/:key_id", get(get_key_handler))
         .with_state(groupcache.clone())
         .route("/metrics", get(|| async move { metric_handle.render() }))
@@ -74,7 +85,9 @@ async fn main() -> Result<()> {
         .map_err::<_, Infallible>(|_| panic!("unreachable - make the compiler happy"))
         .boxed_clone();
 
-    // Create a service that can respond to Web and gRPC
+    // Create a service that can respond to Web and gRPC depending on content type header.
+    // This is needed because groupcache itself communicates with its peers over gRPC.
+    // Alternatively, grpc server could be run on a separate port from the application.
     let http_grpc = Steer::new(
         vec![axum_app, grpc_groupcache],
         |req: &Request<Body>, _svcs: &[_]| {
@@ -86,6 +99,10 @@ async fn main() -> Result<()> {
         },
     );
 
+    // Service discovery
+    // Spawns a task that periodically queries kubernetes API server for pods with groupcache label.
+    // Notifies the groupcache library about new pods and dead pods,
+    // so that groupcache internally can update its routing table.
     let client = Client::try_default().await?;
     let pods_api: Api<Pod> = Api::default_namespaced(client);
     tokio::spawn(async move {
@@ -136,7 +153,7 @@ async fn main() -> Result<()> {
                 }
             }
 
-            tokio::time::sleep(Duration::from_secs(10)).await;
+            tokio::time::sleep(SERVICE_DISCOVERY_REFRESH_INTERVAL).await;
         }
     });
 
