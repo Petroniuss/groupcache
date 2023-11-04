@@ -83,6 +83,7 @@ dashboards:
                 "type": "prometheus",
                 "uid": "PBFA97CFB590B2093"
               },
+              "description": "Dashboard shows metrics exported by groupcache. See crate documentation for metricc description.",
               "fieldConfig": {
                 "defaults": {
                   "color": {
@@ -138,12 +139,12 @@ dashboards:
                 "overrides": []
               },
               "gridPos": {
-                "h": 11,
+                "h": 9,
                 "w": 24,
                 "x": 0,
                 "y": 0
               },
-              "id": 2,
+              "id": 3,
               "options": {
                 "legend": {
                   "calcs": [],
@@ -163,15 +164,71 @@ dashboards:
                     "uid": "PBFA97CFB590B2093"
                   },
                   "editorMode": "code",
-                  "expr": "sum by (endpoint) (rate(axum_http_requests_total[$__rate_interval]))",
+                  "expr": "sum(rate(groupcache_local_cache_hit_total[$__rate_interval]))",
                   "instant": false,
                   "interval": "1m",
-                  "legendFormat": "{{endpoint}}",
+                  "legendFormat": "cache_hit",
                   "range": true,
                   "refId": "A"
+                },
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "PBFA97CFB590B2093"
+                  },
+                  "editorMode": "code",
+                  "expr": "sum(rate(groupcache_get_total[$__rate_interval]))",
+                  "hide": false,
+                  "instant": false,
+                  "interval": "1m",
+                  "legendFormat": "get_total",
+                  "range": true,
+                  "refId": "B"
+                },
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "PBFA97CFB590B2093"
+                  },
+                  "editorMode": "code",
+                  "expr": "sum(rate(groupcache_local_load_total[$__rate_interval]))",
+                  "hide": false,
+                  "instant": false,
+                  "interval": "1m",
+                  "legendFormat": "cache_loads",
+                  "range": true,
+                  "refId": "C"
+                },
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "PBFA97CFB590B2093"
+                  },
+                  "editorMode": "code",
+                  "expr": "sum(rate(groupcache_remote_load_total[$__rate_interval]))",
+                  "hide": false,
+                  "instant": false,
+                  "interval": "1m",
+                  "legendFormat": "groupcache_remote_load",
+                  "range": true,
+                  "refId": "D"
+                },
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "PBFA97CFB590B2093"
+                  },
+                  "editorMode": "code",
+                  "expr": "sum(rate(groupcache_get_server_requests_total[$__rate_interval]))",
+                  "hide": false,
+                  "instant": false,
+                  "interval": "1m",
+                  "legendFormat": "get_server_requests_total",
+                  "range": true,
+                  "refId": "E"
                 }
               ],
-              "title": "HTTP Requests",
+              "title": "Groupcache",
               "type": "timeseries"
             },
             {
@@ -229,15 +286,162 @@ dashboards:
                       }
                     ]
                   },
-                  "unit": "s"
+                  "unit": "reqps"
                 },
-                "overrides": []
+                "overrides": [
+                  {
+                    "__systemRef": "hideSeriesFrom",
+                    "matcher": {
+                      "id": "byNames",
+                      "options": {
+                        "mode": "exclude",
+                        "names": [
+                          "/key/:key_id"
+                        ],
+                        "prefix": "All except:",
+                        "readOnly": true
+                      }
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.hideFrom",
+                        "value": {
+                          "legend": false,
+                          "tooltip": false,
+                          "viz": true
+                        }
+                      }
+                    ]
+                  }
+                ]
               },
               "gridPos": {
-                "h": 11,
+                "h": 8,
                 "w": 24,
                 "x": 0,
-                "y": 11
+                "y": 9
+              },
+              "id": 2,
+              "options": {
+                "legend": {
+                  "calcs": [],
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "mode": "single",
+                  "sort": "none"
+                }
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "PBFA97CFB590B2093"
+                  },
+                  "editorMode": "code",
+                  "expr": "sum by (endpoint) (rate(axum_http_requests_total[$__rate_interval]))",
+                  "instant": false,
+                  "interval": "1m",
+                  "legendFormat": "{{endpoint}}",
+                  "range": true,
+                  "refId": "A"
+                }
+              ],
+              "title": "HTTP Requests",
+              "type": "timeseries"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "palette-classic"
+                  },
+                  "custom": {
+                    "axisCenteredZero": false,
+                    "axisColorMode": "text",
+                    "axisLabel": "",
+                    "axisPlacement": "auto",
+                    "barAlignment": 0,
+                    "drawStyle": "line",
+                    "fillOpacity": 10,
+                    "gradientMode": "none",
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    },
+                    "insertNulls": false,
+                    "lineInterpolation": "linear",
+                    "lineWidth": 1,
+                    "pointSize": 5,
+                    "scaleDistribution": {
+                      "type": "linear"
+                    },
+                    "showPoints": "auto",
+                    "spanNulls": false,
+                    "stacking": {
+                      "group": "A",
+                      "mode": "none"
+                    },
+                    "thresholdsStyle": {
+                      "mode": "off"
+                    }
+                  },
+                  "mappings": [],
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": null
+                      },
+                      {
+                        "color": "red",
+                        "value": 80
+                      }
+                    ]
+                  },
+                  "unit": "s"
+                },
+                "overrides": [
+                  {
+                    "__systemRef": "hideSeriesFrom",
+                    "matcher": {
+                      "id": "byNames",
+                      "options": {
+                        "mode": "exclude",
+                        "names": [
+                          "p90 - /key/:key_id",
+                          "p50 - /key/:key_id"
+                        ],
+                        "prefix": "All except:",
+                        "readOnly": true
+                      }
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.hideFrom",
+                        "value": {
+                          "legend": false,
+                          "tooltip": false,
+                          "viz": true
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 24,
+                "x": 0,
+                "y": 17
               },
               "id": 1,
               "options": {
@@ -285,7 +489,7 @@ dashboards:
               "type": "timeseries"
             }
           ],
-          "refresh": "",
+          "refresh": false,
           "schemaVersion": 38,
           "style": "dark",
           "tags": [],
@@ -293,17 +497,16 @@ dashboards:
             "list": []
           },
           "time": {
-            "from": "now-30m",
-            "to": "now"
+            "from": "2023-11-04T19:45:59.098Z",
+            "to": "2023-11-04T19:54:00.072Z"
           },
           "timepicker": {},
           "timezone": "",
           "title": "groupcache-powered-backend",
           "uid": "e5a19437-b7d2-4937-a981-8f2c81411142",
-          "version": 1,
+          "version": 2,
           "weekStart": ""
         }
-        
 
     prometheus-stats:
       gnetId: 2
