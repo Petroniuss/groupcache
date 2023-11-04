@@ -1,0 +1,78 @@
+## Expose the grafana service to be accessed from outside the cluster (LoadBalancer service).
+## or access it from within the cluster (ClusterIP service). Set the service type and the port to serve it.
+## ref: http://kubernetes.io/docs/user-guide/services/
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+
+persistence:
+  enabled: false
+
+adminUser: admin
+adminPassword: passwd
+
+plugins: "grafana-kubernetes-app"
+
+## Configure grafana datasources
+## ref: http://docs.grafana.org/administration/provisioning/#datasources
+##
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        url: http://prometheus-server.default
+        access: proxy
+        isDefault: true
+
+## Configure grafana dashboard providers
+## ref: http://docs.grafana.org/administration/provisioning/#dashboards
+##
+## `path` must be /var/lib/grafana/dashboards/<provider_name>
+##
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+    - name: 'default'
+      orgId: 1
+      folder: ''
+      type: file
+      disableDeletion: false
+      editable: true
+      options:
+        path: /var/lib/grafana/dashboards/default
+
+## Configure grafana dashboard to import
+## NOTE: To use dashboards you must also enable/configure dashboardProviders
+## ref: https://grafana.com/dashboards
+dashboards:
+  default:
+    prometheus-stats:
+      gnetId: 2
+      revision: 2
+      datasource: Prometheus
+    kubernetes-cluster-monitoring:
+      gnetId: 1621
+      revision: 1
+      datasource: Prometheus
+    kubernetes-resource-requests:
+      gnetId: 7187
+      revision: 1
+      datasource: Prometheus
+    kubernetes-capacity:
+      gnetId: 5309
+      revision: 1
+      datasource: Prometheus
+    kubernetes-pods:
+      gnetId: 6336
+      revision: 1
+      datasource: Prometheus
+    kubernetes-cluster:
+      gnetId: 6417
+      revision: 1
+      datasource: Prometheus

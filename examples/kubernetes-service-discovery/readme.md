@@ -6,14 +6,16 @@ Make sure all dependencies are installed and running (see below).
 
 Installing prometheus:
 ```bash
-helm install -f k8s/prometheus-community/values.yaml prom-release-01 prometheus-community/prometheus
+helm install -f k8s/prometheus-community/values.yaml prometheus prometheus-community/prometheus --version 25.3.1
 ```
 
-To access prometheus run:
+Installing grafana:
 ```bash
-export POD_NAME=$(kubectl get pods --namespace default -l "app.kubernetes.io/name=prometheus,app.kubernetes.io/instance=prom-release-01" -o jsonpath="{.items[0].metadata.name}")
-kubectl --namespace default port-forward $POD_NAME 9090
+helm install -f k8s/grafana/values.yaml grafana grafana/grafana --version 6.61.1
 ```
+
+To access grafana run:
+`minikube service grafana`
 
 ```bash
 kubectl apply -f k8s/groupcache-powered-backend-role.yaml
