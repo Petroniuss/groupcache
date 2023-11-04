@@ -36,8 +36,8 @@ data:
     
     export let options = {
         stages: [
-            {duration: '15s', target: 3},  // Ramp-up to 5 users over 15 seconds
-            {duration: '2m', target: 3},  // Stay at 5 users for 2m seconds
+            {duration: '15s', target: 10},  // Ramp-up to 5 users over 15 seconds
+            {duration: '10m', target: 10},  // Stay at 5 users for 2m seconds
             {duration: '15s', target: 0}    // Ramp-down to 0 users over 15 seconds
         ]
     };

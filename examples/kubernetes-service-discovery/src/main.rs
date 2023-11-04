@@ -95,7 +95,6 @@ async fn main() -> Result<()> {
             let mut new_current_pods = HashSet::new();
             match result {
                 Ok(pods) => {
-                    info!("Found {} groupcache pods", pods.len());
                     for dead_pod in current_pods.difference(&pods) {
                         let pod_addr = dead_pod.addr;
                         let res = groupcache.remove_peer(pod_addr.into()).await;
