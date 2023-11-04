@@ -6,11 +6,12 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use tracing::info;
 
-/// [CacheLoader] implements [groupcache::ValueLoader]
+/// [MockResourceLoader] implements [groupcache::ValueLoader]
 ///
 /// In this example no state is necessary,
-/// but typically [groupcache::ValueLoader] would store a reference to whatever resource the cache was protecting (database, external API etc).
-pub struct CacheLoader;
+/// but typically [groupcache::ValueLoader] would store a reference to whatever resource
+/// the cache was protecting (database, external API etc).
+pub struct MockResourceLoader;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct CachedValue {
@@ -18,7 +19,7 @@ pub struct CachedValue {
 }
 
 #[async_trait]
-impl groupcache::ValueLoader for CacheLoader {
+impl groupcache::ValueLoader for MockResourceLoader {
     type Value = CachedValue;
 
     async fn load(
@@ -40,7 +41,7 @@ impl groupcache::ValueLoader for CacheLoader {
 }
 
 pub async fn configure_groupcache(socket: SocketAddr) -> Result<GroupcacheWrapper<CachedValue>> {
-    let loader = CacheLoader {};
+    let loader = MockResourceLoader {};
     let groupcache = GroupcacheWrapper::new(socket.into(), Box::new(loader));
 
     Ok(groupcache)

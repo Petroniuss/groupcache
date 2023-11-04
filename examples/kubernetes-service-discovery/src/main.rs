@@ -36,7 +36,7 @@ static SERVICE_DISCOVERY_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
 /// This example shows how to run a simple backend with groupcache with multiple instances on k8s.
 /// Kubernetes API server is used for service discovery.
 /// A simple endpoint is exposed `/key/:key_id` that loads a value for :key_id from groupcache,
-/// which mocks a fetch from database lasting 100ms (see [cache::CacheLoader]).
+/// which mimics a fetch from database lasting 100ms (see [cache::MockResourceLoader]).
 ///
 /// If you want to run it locally, see readme.
 #[tokio::main]
@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
     let (prometheus_layer, metric_handle) = axum_prometheus::PrometheusMetricLayer::pair();
 
     // Groupcache instance, configured to respond to requests under `addr`
-    // It doesn't by itself start an gRPC server, this is done later.
+    // It doesn't by itself start a gRPC server, this is done later.
     let groupcache = configure_groupcache(addr).await?;
 
     // Example axum app with endpoint to retrieve value from groupcache.
