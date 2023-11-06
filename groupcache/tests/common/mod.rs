@@ -3,7 +3,7 @@
 use anyhow::anyhow;
 use anyhow::Result;
 use async_trait::async_trait;
-use groupcache::{GroupcacheOptions, GroupcacheWrapper, Key};
+use groupcache::{GroupcacheWrapper, Key, OptionsBuilder};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use std::future::{pending, Future};
@@ -113,9 +113,9 @@ pub async fn spawn_groupcache_instance(
         GroupcacheWrapper::<CachedValue>::new_with_options(
             addr.into(),
             Box::new(loader),
-            GroupcacheOptions {
+            OptionsBuilder {
                 hot_cache_ttl: Some(HOT_CACHE_TTL),
-                ..GroupcacheOptions::default()
+                ..OptionsBuilder::default()
             },
         )
     };

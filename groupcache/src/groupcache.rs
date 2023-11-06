@@ -8,6 +8,7 @@ use metrics::counter;
 use moka::future::Cache;
 use singleflight_async::SingleFlight;
 use std::sync::{Arc, RwLock};
+use tonic::transport::Endpoint;
 use tonic::IntoRequest;
 
 const METRIC_GET_TOTAL: &str = "groupcache.get_total";
@@ -26,7 +27,13 @@ pub struct Groupcache<Value: ValueBounds> {
     // hot_cache is used for caching values that are owned by other peers.
     hot_cache: Cache<String, Value>,
     loader: Box<dyn ValueLoader<Value = Value>>,
+    config: Config,
     pub(crate) me: Peer,
+}
+
+struct Config {
+    https: bool,
+    grpc_endpoint_builder: Arc<Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>>,
 }
 
 impl<Value: ValueBounds> Groupcache<Value> {
@@ -38,7 +45,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
         let routing_state = Arc::new(RwLock::new(RoutingState::with_local_peer(me)));
 
         let cache = Cache::<String, Value>::builder()
-            .max_capacity(options.cache_capacity)
+            .max_capacity(options.main_cache_capacity)
             .build();
 
         let hot_cache = Cache::<String, Value>::builder()
@@ -48,6 +55,11 @@ impl<Value: ValueBounds> Groupcache<Value> {
 
         let single_flight_group = SingleFlight::default();
 
+        let config = Config {
+            https: options.https,
+            grpc_endpoint_builder: Arc::new(options.grpc_endpoint_builder),
+        };
+
         Self {
             routing_state,
             single_flight_group,
@@ -55,6 +67,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
             hot_cache,
             loader,
             me,
+            config,
         }
     }
 
@@ -224,12 +237,25 @@ impl<Value: ValueBounds> Groupcache<Value> {
             return Ok(());
         }
 
-        let client = GroupcacheClient::connect(peer.addr()).await?;
-
+        let client = self.connect(peer).await?;
         let mut write_lock = self.routing_state.write().unwrap();
         write_lock.add_peer(peer, client);
 
         Ok(())
+    }
+
+    async fn connect(&self, peer: Peer) -> Result<PeerClient> {
+        let socket = peer.socket;
+        let peer_addr = if self.config.https {
+            format!("https://{}", socket)
+        } else {
+            format!("http://{}", socket)
+        };
+
+        let endpoint: Endpoint = peer_addr.try_into()?;
+        let endpoint = self.config.grpc_endpoint_builder.as_ref()(endpoint);
+        let client = GroupcacheClient::connect(endpoint).await?;
+        Ok(client)
     }
 
     pub(crate) async fn remove_peer(&self, peer: Peer) -> Result<()> {
