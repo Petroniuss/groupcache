@@ -90,51 +90,66 @@ impl<Value: ValueBounds> Groupcache<Value> {
     async fn get_dedup(&self, key: &Key, peer: Peer) -> Result<Value, InternalGroupcacheError> {
         let value = self
             .single_flight_group
-            .work(key, || async { self.error_wrapped_dedup(key, peer).await })
+            .work(key, || async {
+                self.deduped_get_instrumented(key, peer).await
+            })
             .await?;
 
         Ok(value)
     }
 
-    async fn error_wrapped_dedup(
+    async fn deduped_get_instrumented(
         &self,
         key: &Key,
         peer: Peer,
     ) -> Result<Value, DedupedGroupcacheError> {
-        self.dedup_get(key, peer)
+        self.deduped_get(key, peer)
             .await
             .map_err(|e| DedupedGroupcacheError(Arc::new(e)))
     }
 
-    async fn dedup_get(&self, key: &Key, peer: Peer) -> Result<Value, InternalGroupcacheError> {
-        let value = if peer == self.me {
-            counter!(METRIC_LOCAL_LOAD_TOTAL, 1);
-            let value = self.load_locally(key).await.map_err(|e| {
-                counter!(METRIC_LOCAL_LOAD_ERROR_TOTAL, 1);
-                e
-            })?;
+    async fn deduped_get(&self, key: &Key, peer: Peer) -> Result<Value, InternalGroupcacheError> {
+        if peer == self.me {
+            let value = self.load_locally_instrumented(key).await?;
             self.cache.insert(key.to_string(), value.clone()).await;
+            return Ok(value);
+        }
 
-            value
-        } else {
-            counter!(METRIC_REMOTE_LOAD_TOTAL, 1);
-            let value = self.load_remotely(key, peer).await.map_err(|e| {
-                counter!(METRIC_REMOTE_LOAD_ERROR, 1);
-                e
-            })?;
-            self.hot_cache.insert(key.to_string(), value.clone()).await;
-
-            value
-        };
-
-        Ok(value)
+        let res = self.load_remotely_instrumented(key, peer).await;
+        match res {
+            Ok(value) => {
+                self.hot_cache.insert(key.to_string(), value.clone()).await;
+                Ok(value)
+            }
+            Err(_) => {
+                let value = self.load_locally_instrumented(key).await?;
+                Ok(value)
+            }
+        }
     }
 
-    async fn load_locally(&self, key: &Key) -> Result<Value, InternalGroupcacheError> {
+    async fn load_locally_instrumented(&self, key: &Key) -> Result<Value, InternalGroupcacheError> {
+        counter!(METRIC_LOCAL_LOAD_TOTAL, 1);
         self.loader
             .load(key)
             .await
+            .map_err(|e| {
+                counter!(METRIC_LOCAL_LOAD_ERROR_TOTAL, 1);
+                e
+            })
             .map_err(InternalGroupcacheError::LocalLoader)
+    }
+
+    async fn load_remotely_instrumented(
+        &self,
+        key: &Key,
+        peer: Peer,
+    ) -> Result<Value, InternalGroupcacheError> {
+        counter!(METRIC_REMOTE_LOAD_TOTAL, 1);
+        self.load_remotely(key, peer).await.map_err(|e| {
+            counter!(METRIC_REMOTE_LOAD_ERROR, 1);
+            e
+        })
     }
 
     async fn load_remotely(&self, key: &Key, peer: Peer) -> Result<Value, InternalGroupcacheError> {
