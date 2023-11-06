@@ -1,5 +1,5 @@
 use crate::{Key, Peer, PeerClient};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use hashring::HashRing;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -7,8 +7,13 @@ use std::net::SocketAddr;
 static VNODES_PER_PEER: i32 = 40;
 
 pub(crate) struct RoutingState {
-    peers: HashMap<Peer, ConnectedPeer>,
+    peers: HashMap<Peer, PeerClient>,
     ring: HashRing<VNode>,
+}
+
+pub(crate) struct PeerWithClient {
+    pub(crate) peer: Peer,
+    pub(crate) client: Option<PeerClient>,
 }
 
 impl RoutingState {
@@ -29,19 +34,23 @@ impl RoutingState {
         }
     }
 
-    // todo: I think we should instead return tuple (peer, client)
-    // this way we'd acquire reader lock only once on a hot path, not twice.
-    pub(crate) fn peer_for_key(&self, key: &Key) -> Result<Peer> {
-        let vnode = self.ring.get(&key).context("ring can't be empty")?;
+    pub(crate) fn lookup_peer(&self, key: &Key) -> Result<PeerWithClient> {
+        let peer = self.peer_for_key(key)?;
+        let client = self.connected_client(&peer);
 
+        Ok(PeerWithClient { peer, client })
+    }
+
+    fn peer_for_key(&self, key: &Key) -> Result<Peer> {
+        let vnode = self
+            .ring
+            .get(&key)
+            .context("unreachable: ring can't be empty")?;
         Ok(vnode.as_peer())
     }
 
-    pub(crate) fn client_for_peer(&self, peer: &Peer) -> Result<PeerClient> {
-        match self.peers.get(peer) {
-            Some(peer) => Ok(peer.client.clone()),
-            None => Err(anyhow!("peer not found")),
-        }
+    fn connected_client(&self, peer: &Peer) -> Option<PeerClient> {
+        self.peers.get(peer).cloned()
     }
 
     pub(crate) fn add_peer(&mut self, peer: Peer, client: PeerClient) {
@@ -49,7 +58,7 @@ impl RoutingState {
         for vnode in vnodes {
             self.ring.add(vnode);
         }
-        self.peers.insert(peer, ConnectedPeer { client });
+        self.peers.insert(peer, client);
     }
 
     pub(crate) fn remove_peer(&mut self, peer: Peer) {
@@ -63,11 +72,6 @@ impl RoutingState {
     pub(crate) fn contains_peer(&self, peer: &Peer) -> bool {
         self.peers.contains_key(peer)
     }
-}
-
-#[derive(Debug)]
-struct ConnectedPeer {
-    client: PeerClient,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

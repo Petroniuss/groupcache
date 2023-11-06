@@ -82,7 +82,7 @@ async fn when_new_peer_joins_it_should_receive_requests() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_when_remote_get_fails_during_load_then_error_is_forwarded() -> Result<()> {
+async fn test_when_remote_get_fails_during_load_then_load_locally() -> Result<()> {
     let (instance_one, instance_two) = two_connected_instances().await?;
     let key_on_instance_2 = error_key_on_instance(instance_two.clone());
 
@@ -92,7 +92,7 @@ async fn test_when_remote_get_fails_during_load_then_error_is_forwarded() -> Res
         .expect_err("expected error from loader");
 
     assert_eq!(
-        "Transport error: 'Loading error: 'Something bad happened during loading :/''",
+        "Loading error: 'Something bad happened during loading :/'",
         err.to_string()
     );
 
