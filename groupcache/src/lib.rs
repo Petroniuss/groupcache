@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tonic::transport::Channel;
+use tonic::transport::{Channel, Endpoint};
 
 #[derive(Clone)]
 pub struct GroupcacheWrapper<Value: ValueBounds>(Arc<Groupcache<Value>>);
@@ -46,13 +46,7 @@ impl<Value: ValueBounds> GroupcacheWrapper<Value> {
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Peer {
-    socket: SocketAddr,
-}
-
-impl Peer {
-    pub(crate) fn addr(&self) -> String {
-        format!("http://{}", self.socket.clone())
-    }
+    pub(crate) socket: SocketAddr,
 }
 
 impl From<SocketAddr> for Peer {
@@ -84,57 +78,73 @@ pub trait ValueLoader: Send + Sync {
 type PeerClient = GroupcacheClient<Channel>;
 
 #[derive(Default)]
-pub struct GroupcacheOptions {
-    pub cache_capacity: Option<u64>,
+pub struct OptionsBuilder {
+    pub main_cache_capacity: Option<u64>,
     pub hot_cache_capacity: Option<u64>,
     pub hot_cache_ttl: Option<Duration>,
+    pub https: Option<bool>,
+    pub grpc_endpoint_builder: Option<Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>>,
 }
 
 pub(crate) struct Options {
-    pub(crate) cache_capacity: u64,
+    pub(crate) main_cache_capacity: u64,
     pub(crate) hot_cache_capacity: u64,
     pub(crate) hot_cache_ttl: Duration,
+    pub(crate) https: bool,
+    pub(crate) grpc_endpoint_builder: Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Self {
-            cache_capacity: 100_000,
+            main_cache_capacity: 100_000,
             hot_cache_capacity: 10_000,
             hot_cache_ttl: Duration::from_secs(30),
+            https: false,
+            grpc_endpoint_builder: Box::new(|e| e.timeout(Duration::from_secs(2))),
         }
     }
 }
 
-impl From<GroupcacheOptions> for Options {
-    fn from(value: GroupcacheOptions) -> Self {
+impl From<OptionsBuilder> for Options {
+    fn from(builder: OptionsBuilder) -> Self {
         let default = Options::default();
 
-        let cache_capacity = value.cache_capacity.unwrap_or(default.cache_capacity);
+        let cache_capacity = builder
+            .main_cache_capacity
+            .unwrap_or(default.main_cache_capacity);
 
-        let hot_cache_capacity = value
+        let hot_cache_capacity = builder
             .hot_cache_capacity
             .unwrap_or(default.hot_cache_capacity);
 
-        let hot_cache_timeout_seconds = value.hot_cache_ttl.unwrap_or(default.hot_cache_ttl);
+        let hot_cache_timeout_seconds = builder.hot_cache_ttl.unwrap_or(default.hot_cache_ttl);
+
+        let https = builder.https.unwrap_or(default.https);
+
+        let grpc_endpoint_builder = builder
+            .grpc_endpoint_builder
+            .unwrap_or(default.grpc_endpoint_builder);
 
         Self {
-            cache_capacity,
+            main_cache_capacity: cache_capacity,
             hot_cache_capacity,
             hot_cache_ttl: hot_cache_timeout_seconds,
+            https,
+            grpc_endpoint_builder,
         }
     }
 }
 
 impl<Value: ValueBounds> GroupcacheWrapper<Value> {
     pub fn new(me: Peer, loader: Box<dyn ValueLoader<Value = Value>>) -> Self {
-        GroupcacheWrapper::new_with_options(me, loader, GroupcacheOptions::default())
+        GroupcacheWrapper::new_with_options(me, loader, OptionsBuilder::default())
     }
 
     pub fn new_with_options(
         me: Peer,
         loader: Box<dyn ValueLoader<Value = Value>>,
-        options: GroupcacheOptions,
+        options: OptionsBuilder,
     ) -> Self {
         let groupcache = Groupcache::new(me, loader, options.into());
         Self(Arc::new(groupcache))
