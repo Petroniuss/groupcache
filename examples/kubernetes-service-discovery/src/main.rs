@@ -224,6 +224,7 @@ struct GetResponseFailure {
     pub error: String,
 }
 
+/// Simple HTTP handler that forwards request to groupcache and returns a JSON response.
 async fn get_key_handler(
     Path(key): Path<String>,
     State(groupcache): State<GroupcacheWrapper<CachedValue>>,

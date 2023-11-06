@@ -1,7 +1,7 @@
 use crate::errors::{DedupedGroupcacheError, GroupcacheError, InternalGroupcacheError};
-use crate::routing::RoutingState;
-use crate::{Key, Options, Peer, ValueBounds, ValueLoader};
-use anyhow::Result;
+use crate::routing::{PeerWithClient, RoutingState};
+use crate::{Key, Options, Peer, PeerClient, ValueBounds, ValueLoader};
+use anyhow::{Context, Result};
 use groupcache_pb::groupcache_pb::groupcache_client::GroupcacheClient;
 use groupcache_pb::groupcache_pb::{GetRequest, RemoveRequest};
 use metrics::counter;
@@ -80,42 +80,43 @@ impl<Value: ValueBounds> Groupcache<Value> {
 
         let peer = {
             let lock = self.routing_state.read().unwrap();
-            lock.peer_for_key(key)?
-        };
+            lock.lookup_peer(key)
+        }?;
 
-        let value = self.get_dedup(key, peer).await?;
+        let value = self.get_deduped_instrumented(key, peer).await?;
         Ok(value)
     }
 
-    async fn get_dedup(&self, key: &Key, peer: Peer) -> Result<Value, InternalGroupcacheError> {
-        let value = self
-            .single_flight_group
-            .work(key, || async {
-                self.deduped_get_instrumented(key, peer).await
-            })
-            .await?;
-
-        Ok(value)
-    }
-
-    async fn deduped_get_instrumented(
+    async fn get_deduped_instrumented(
         &self,
         key: &Key,
-        peer: Peer,
-    ) -> Result<Value, DedupedGroupcacheError> {
-        self.deduped_get(key, peer)
+        peer: PeerWithClient,
+    ) -> Result<Value, InternalGroupcacheError> {
+        self.single_flight_group
+            .work(key, || async {
+                self.get_deduped(key, peer)
+                    .await
+                    .map_err(|e| DedupedGroupcacheError(Arc::new(e)))
+            })
             .await
-            .map_err(|e| DedupedGroupcacheError(Arc::new(e)))
+            .map_err(InternalGroupcacheError::Deduped)
     }
 
-    async fn deduped_get(&self, key: &Key, peer: Peer) -> Result<Value, InternalGroupcacheError> {
-        if peer == self.me {
+    async fn get_deduped(
+        &self,
+        key: &Key,
+        peer: PeerWithClient,
+    ) -> Result<Value, InternalGroupcacheError> {
+        if peer.peer == self.me {
             let value = self.load_locally_instrumented(key).await?;
             self.cache.insert(key.to_string(), value.clone()).await;
             return Ok(value);
         }
 
-        let res = self.load_remotely_instrumented(key, peer).await;
+        let mut client = peer
+            .client
+            .context("unreachable: cannot be empty since it's a remote peer")?;
+        let res = self.load_remotely_instrumented(key, &mut client).await;
         match res {
             Ok(value) => {
                 self.hot_cache.insert(key.to_string(), value.clone()).await;
@@ -143,21 +144,20 @@ impl<Value: ValueBounds> Groupcache<Value> {
     async fn load_remotely_instrumented(
         &self,
         key: &Key,
-        peer: Peer,
+        client: &mut PeerClient,
     ) -> Result<Value, InternalGroupcacheError> {
         counter!(METRIC_REMOTE_LOAD_TOTAL, 1);
-        self.load_remotely(key, peer).await.map_err(|e| {
+        self.load_remotely(key, client).await.map_err(|e| {
             counter!(METRIC_REMOTE_LOAD_ERROR, 1);
             e
         })
     }
 
-    async fn load_remotely(&self, key: &Key, peer: Peer) -> Result<Value, InternalGroupcacheError> {
-        let mut client = {
-            let read_lock = self.routing_state.read().unwrap();
-            read_lock.client_for_peer(&peer)?
-        };
-
+    async fn load_remotely(
+        &self,
+        key: &Key,
+        client: &mut PeerClient,
+    ) -> Result<Value, InternalGroupcacheError> {
         let response = client
             .get(
                 GetRequest {
@@ -182,13 +182,16 @@ impl<Value: ValueBounds> Groupcache<Value> {
 
         let peer = {
             let lock = self.routing_state.read().unwrap();
-            lock.peer_for_key(key)?
-        };
+            lock.lookup_peer(key)
+        }?;
 
-        if peer == self.me {
+        if peer.peer == self.me {
             self.cache.remove(key).await;
         } else {
-            self.remove_remotely(key, peer).await?;
+            let mut client = peer
+                .client
+                .context("unreachable: cannot be empty since it's a remote peer")?;
+            self.remove_remotely(key, &mut client).await?;
         }
 
         Ok(())
@@ -197,13 +200,8 @@ impl<Value: ValueBounds> Groupcache<Value> {
     async fn remove_remotely(
         &self,
         key: &Key,
-        peer: Peer,
+        client: &mut PeerClient,
     ) -> core::result::Result<(), InternalGroupcacheError> {
-        let mut client = {
-            let read_lock = self.routing_state.read().unwrap();
-            read_lock.client_for_peer(&peer)?
-        };
-
         let _ = client
             .remove(
                 RemoveRequest {
