@@ -1,3 +1,4 @@
+#![doc = include_str!("../readme.md")]
 mod cache;
 
 use crate::cache::{configure_groupcache, CachedValue};

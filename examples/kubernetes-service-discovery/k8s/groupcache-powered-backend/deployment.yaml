@@ -21,6 +21,7 @@ spec:
       containers:
         - name: groupcache-powered-backend
           image: groupcache-powered-backend:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
           env:
