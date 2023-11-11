@@ -4,7 +4,6 @@ mod cache;
 use crate::cache::{configure_groupcache, CachedValue};
 use anyhow::Context;
 use anyhow::Result;
-use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::header::CONTENT_TYPE;
 use axum::http::{Request, StatusCode};
@@ -91,7 +90,7 @@ async fn main() -> Result<()> {
     // Alternatively, grpc server could be run on a separate port from the application.
     let http_grpc = Steer::new(
         vec![axum_app, grpc_groupcache],
-        |req: &Request<Body>, _svcs: &[_]| {
+        |req: &Request<_>, _svcs: &[_]| {
             let content_type = req.headers().get(CONTENT_TYPE).map(|v| v.as_bytes());
             usize::from(
                 content_type == Some(b"application/grpc")
@@ -100,63 +99,10 @@ async fn main() -> Result<()> {
         },
     );
 
-    // Service discovery
-    // Spawns a task that periodically queries kubernetes API server for pods with groupcache label.
-    // Notifies the groupcache library about new pods and dead pods,
-    // so that groupcache internally can update its routing table.
+    // Spawns a service discovery loop.
     let client = Client::try_default().await?;
     let pods_api: Api<Pod> = Api::default_namespaced(client);
-    tokio::spawn(async move {
-        let mut current_pods = Box::<HashSet<GroupcachePod>>::default();
-        loop {
-            let result = find_groupcache_pods(&pods_api, &pod_ip).await;
-            let mut new_current_pods = HashSet::new();
-            match result {
-                Ok(pods) => {
-                    for dead_pod in current_pods.difference(&pods) {
-                        let pod_addr = dead_pod.addr;
-                        let res = groupcache.remove_peer(pod_addr.into()).await;
-                        match res {
-                            Ok(_) => {
-                                info!("Removed peer: {:?} from groupcache cluster", dead_pod);
-                            }
-                            Err(e) => {
-                                warn!("Failed to remove peer from groupcache cluster: {}", e);
-                            }
-                        }
-                    }
-
-                    for new_pod in pods.difference(&current_pods) {
-                        let pod_addr = new_pod.addr;
-                        let res = groupcache.add_peer(pod_addr.into()).await;
-                        match res {
-                            Ok(_) => {
-                                info!("Added peer: {:?} to groupcache cluster", new_pod);
-                                new_current_pods.insert(new_pod.clone());
-                            }
-                            Err(e) => {
-                                warn!(
-                                    "Failed to add peer {:?} to groupcache cluster: {}",
-                                    new_pod, e
-                                );
-                            }
-                        }
-                    }
-
-                    for pod in pods.intersection(&current_pods) {
-                        new_current_pods.insert(pod.clone());
-                    }
-
-                    *current_pods = new_current_pods;
-                }
-                Err(e) => {
-                    warn!("Failed to refresh groupcache nodes: {}", e);
-                }
-            }
-
-            tokio::time::sleep(SERVICE_DISCOVERY_REFRESH_INTERVAL).await;
-        }
-    });
+    tokio::spawn(monitor_groupcache_pods(pods_api, groupcache, pod_ip));
 
     info!("Listening on addr: {}", addr);
     let bind_addr = format!("0.0.0.0:{}", pod_port).parse()?;
@@ -168,15 +114,66 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-#[derive(Eq, PartialEq, Hash, Debug, Clone)]
-struct GroupcachePod {
-    addr: SocketAddr,
+/// Periodically queries kubernetes API server to discover backend pods.
+/// Notifies the groupcache library about new and dead pods,
+/// so that groupcache internally can update its routing table.
+async fn monitor_groupcache_pods(
+    pods_api: Api<Pod>,
+    groupcache: GroupcacheWrapper<CachedValue>,
+    pod_ip: String,
+) {
+    let mut current_pods = Box::<HashSet<GroupcachePod>>::default();
+    loop {
+        tokio::time::sleep(SERVICE_DISCOVERY_REFRESH_INTERVAL).await;
+
+        let result = find_groupcache_pods(&pods_api, &pod_ip).await;
+        let mut new_current_pods = HashSet::new();
+        match result {
+            Ok(pods) => {
+                for dead_pod in current_pods.difference(&pods) {
+                    let pod_addr = dead_pod.addr;
+                    let res = groupcache.remove_peer(pod_addr.into()).await;
+                    match res {
+                        Ok(_) => {
+                            info!("Removed peer: {:?} from groupcache cluster", dead_pod);
+                        }
+                        Err(e) => {
+                            warn!("Failed to remove peer from groupcache cluster: {}", e);
+                        }
+                    }
+                }
+
+                for new_pod in pods.difference(&current_pods) {
+                    let pod_addr = new_pod.addr;
+                    let res = groupcache.add_peer(pod_addr.into()).await;
+                    match res {
+                        Ok(_) => {
+                            info!("Added peer: {:?} to groupcache cluster", new_pod);
+                            new_current_pods.insert(new_pod.clone());
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to add peer {:?} to groupcache cluster: {}",
+                                new_pod, e
+                            );
+                        }
+                    }
+                }
+
+                for pod in pods.intersection(&current_pods) {
+                    new_current_pods.insert(pod.clone());
+                }
+
+                *current_pods = new_current_pods;
+            }
+            Err(e) => {
+                warn!("Failed to refresh groupcache nodes: {}", e);
+            }
+        }
+    }
 }
 
-fn read_env(env_var_name: &'static str) -> Result<String> {
-    env::var(env_var_name).context(format!("Failed to read: '{}' env variable", env_var_name))
-}
-
+/// Queries kubernetes API server for pods with `app=groupcache-powered-backend` label selector.
 async fn find_groupcache_pods(pods_api: &Api<Pod>, my_ip: &str) -> Result<HashSet<GroupcachePod>> {
     let pods_with_label_query = ListParams::default().labels("app=groupcache-powered-backend");
     let pods = pods_api
@@ -202,15 +199,9 @@ async fn find_groupcache_pods(pods_api: &Api<Pod>, my_ip: &str) -> Result<HashSe
     Ok(pods)
 }
 
-fn trace() -> TraceLayer<SharedClassifier<ServerErrorsAsFailures>> {
-    TraceLayer::new_for_http()
-        .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
-        .on_request(DefaultOnRequest::new().level(Level::INFO))
-        .on_response(
-            DefaultOnResponse::new()
-                .level(Level::INFO)
-                .latency_unit(LatencyUnit::Micros),
-        )
+#[derive(Eq, PartialEq, Hash, Debug, Clone)]
+struct GroupcachePod {
+    addr: SocketAddr,
 }
 
 #[derive(Serialize)]
@@ -254,6 +245,22 @@ async fn handler_404() -> impl IntoResponse {
     (StatusCode::NOT_FOUND, "nothing to see here\n")
 }
 
+/// Hello world endpoint
 async fn hello() -> &'static str {
     "Hello from groupcache-powered-backend-service!\n"
+}
+
+fn trace() -> TraceLayer<SharedClassifier<ServerErrorsAsFailures>> {
+    TraceLayer::new_for_http()
+        .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+        .on_request(DefaultOnRequest::new().level(Level::INFO))
+        .on_response(
+            DefaultOnResponse::new()
+                .level(Level::INFO)
+                .latency_unit(LatencyUnit::Micros),
+        )
+}
+
+fn read_env(env_var_name: &'static str) -> Result<String> {
+    env::var(env_var_name).context(format!("Failed to read: '{}' env variable", env_var_name))
 }

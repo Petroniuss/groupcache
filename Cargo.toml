@@ -2,7 +2,6 @@
 resolver = "2"
 members= [
     "groupcache",
-    "groupcache-app",
     "groupcache-pb",
     "examples/kubernetes-service-discovery"
 ]
