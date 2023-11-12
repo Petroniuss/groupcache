@@ -110,14 +110,8 @@ pub async fn spawn_groupcache_instance(
     let addr = listener.local_addr()?;
     let groupcache = {
         let loader = TestCacheLoader::new(instance_id);
-        GroupcacheWrapper::<CachedValue>::new_with_options(
-            addr.into(),
-            Box::new(loader),
-            OptionsBuilder {
-                hot_cache_ttl: Some(HOT_CACHE_TTL),
-                ..OptionsBuilder::default()
-            },
-        )
+        let options = OptionsBuilder::new().hot_cache_ttl(HOT_CACHE_TTL).build();
+        GroupcacheWrapper::<CachedValue>::new_with_options(addr.into(), Box::new(loader), options)
     };
 
     let server = groupcache.grpc_service();

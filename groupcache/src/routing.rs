@@ -1,4 +1,4 @@
-use crate::{Key, Peer, PeerClient};
+use crate::{GroupcachePeer, GroupcachePeerClient, Key};
 use anyhow::{Context, Result};
 use hashring::HashRing;
 use std::collections::HashMap;
@@ -7,17 +7,17 @@ use std::net::SocketAddr;
 static VNODES_PER_PEER: i32 = 40;
 
 pub(crate) struct RoutingState {
-    peers: HashMap<Peer, PeerClient>,
+    peers: HashMap<GroupcachePeer, GroupcachePeerClient>,
     ring: HashRing<VNode>,
 }
 
-pub(crate) struct PeerWithClient {
-    pub(crate) peer: Peer,
-    pub(crate) client: Option<PeerClient>,
+pub(crate) struct GroupcachePeerWithClient {
+    pub(crate) peer: GroupcachePeer,
+    pub(crate) client: Option<GroupcachePeerClient>,
 }
 
 impl RoutingState {
-    pub(crate) fn with_local_peer(peer: Peer) -> Self {
+    pub(crate) fn with_local_peer(peer: GroupcachePeer) -> Self {
         let ring = {
             let mut ring = HashRing::new();
             let vnodes = VNode::vnodes_for_peer(peer, VNODES_PER_PEER);
@@ -34,14 +34,14 @@ impl RoutingState {
         }
     }
 
-    pub(crate) fn lookup_peer(&self, key: &Key) -> Result<PeerWithClient> {
+    pub(crate) fn lookup_peer(&self, key: &Key) -> Result<GroupcachePeerWithClient> {
         let peer = self.peer_for_key(key)?;
         let client = self.connected_client(&peer);
 
-        Ok(PeerWithClient { peer, client })
+        Ok(GroupcachePeerWithClient { peer, client })
     }
 
-    fn peer_for_key(&self, key: &Key) -> Result<Peer> {
+    fn peer_for_key(&self, key: &Key) -> Result<GroupcachePeer> {
         let vnode = self
             .ring
             .get(&key)
@@ -49,11 +49,11 @@ impl RoutingState {
         Ok(vnode.as_peer())
     }
 
-    fn connected_client(&self, peer: &Peer) -> Option<PeerClient> {
+    fn connected_client(&self, peer: &GroupcachePeer) -> Option<GroupcachePeerClient> {
         self.peers.get(peer).cloned()
     }
 
-    pub(crate) fn add_peer(&mut self, peer: Peer, client: PeerClient) {
+    pub(crate) fn add_peer(&mut self, peer: GroupcachePeer, client: GroupcachePeerClient) {
         let vnodes = VNode::vnodes_for_peer(peer, VNODES_PER_PEER);
         for vnode in vnodes {
             self.ring.add(vnode);
@@ -61,7 +61,7 @@ impl RoutingState {
         self.peers.insert(peer, client);
     }
 
-    pub(crate) fn remove_peer(&mut self, peer: Peer) {
+    pub(crate) fn remove_peer(&mut self, peer: GroupcachePeer) {
         let vnodes = VNode::vnodes_for_peer(peer, VNODES_PER_PEER);
         for vnode in vnodes {
             self.ring.remove(&vnode);
@@ -69,7 +69,7 @@ impl RoutingState {
         self.peers.remove(&peer);
     }
 
-    pub(crate) fn contains_peer(&self, peer: &Peer) -> bool {
+    pub(crate) fn contains_peer(&self, peer: &GroupcachePeer) -> bool {
         self.peers.contains_key(peer)
     }
 }
@@ -86,7 +86,7 @@ impl VNode {
         }
     }
 
-    fn vnodes_for_peer(peer: Peer, num: i32) -> Vec<VNode> {
+    fn vnodes_for_peer(peer: GroupcachePeer, num: i32) -> Vec<VNode> {
         let mut vnodes = Vec::new();
         for i in 0..num {
             let vnode = VNode::new(peer.socket, i as usize);
@@ -96,8 +96,8 @@ impl VNode {
         vnodes
     }
 
-    fn as_peer(&self) -> Peer {
+    fn as_peer(&self) -> GroupcachePeer {
         let addr = self.addr_id.split('_').next().unwrap().parse().unwrap();
-        Peer { socket: addr }
+        GroupcachePeer { socket: addr }
     }
 }
