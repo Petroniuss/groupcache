@@ -40,18 +40,12 @@ impl<Value: ValueBounds> Groupcache<Value> {
     pub(crate) fn new(
         me: GroupcachePeer,
         loader: Box<dyn ValueLoader<Value = Value>>,
-        options: Options,
+        options: Options<Value>,
     ) -> Self {
         let routing_state = Arc::new(RwLock::new(RoutingState::with_local_peer(me)));
 
-        let cache = Cache::<String, Value>::builder()
-            .max_capacity(options.main_cache_capacity)
-            .build();
-
-        let hot_cache = Cache::<String, Value>::builder()
-            .max_capacity(options.hot_cache_capacity)
-            .time_to_live(options.hot_cache_ttl)
-            .build();
+        let main_cache = options.main_cache;
+        let hot_cache = options.hot_cache;
 
         let single_flight_group = SingleFlight::default();
 
@@ -63,7 +57,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
         Self {
             routing_state,
             single_flight_group,
-            cache,
+            cache: main_cache,
             hot_cache,
             loader,
             me,

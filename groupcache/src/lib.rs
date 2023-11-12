@@ -58,7 +58,7 @@ impl<Value: ValueBounds> GroupcacheWrapper<Value> {
     pub fn new_with_options(
         me: GroupcachePeer,
         loader: Box<dyn ValueLoader<Value = Value>>,
-        options: Options,
+        options: Options<Value>,
     ) -> Self {
         let groupcache = Groupcache::new(me, loader, options);
         Self(Arc::new(groupcache))
@@ -123,6 +123,7 @@ pub trait ValueBounds: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync
 /// Automatically implement ValueBounds for types that satisfy the trait.
 impl<T: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static> ValueBounds for T {}
 
+// todo: look whether this any useful..
 /// Groupcache caches values by [Key] which is plain str.
 pub type Key = str;
 
