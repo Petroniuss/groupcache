@@ -22,9 +22,7 @@ const METRIC_REMOTE_LOAD_ERROR: &str = "groupcache.remote_load_errors";
 pub struct Groupcache<Value: ValueBounds> {
     routing_state: Arc<RwLock<RoutingState>>,
     single_flight_group: SingleFlight<Result<Value, DedupedGroupcacheError>>,
-    // cache is used for values that are owned by this peer.
-    cache: Cache<String, Value>,
-    // hot_cache is used for caching values that are owned by other peers.
+    main_cache: Cache<String, Value>,
     hot_cache: Cache<String, Value>,
     loader: Box<dyn ValueLoader<Value = Value>>,
     config: Config,
@@ -57,7 +55,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
         Self {
             routing_state,
             single_flight_group,
-            cache: main_cache,
+            main_cache,
             hot_cache,
             loader,
             me,
@@ -75,7 +73,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
 
     async fn get_internal(&self, key: &Key) -> Result<Value, InternalGroupcacheError> {
         counter!(METRIC_GET_TOTAL, 1);
-        if let Some(value) = self.cache.get(key).await {
+        if let Some(value) = self.main_cache.get(key).await {
             counter!(METRIC_LOCAL_CACHE_HIT_TOTAL, 1);
             return Ok(value);
         }
@@ -116,7 +114,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
     ) -> Result<Value, InternalGroupcacheError> {
         if peer.peer == self.me {
             let value = self.load_locally_instrumented(key).await?;
-            self.cache.insert(key.to_string(), value.clone()).await;
+            self.main_cache.insert(key.to_string(), value.clone()).await;
             return Ok(value);
         }
 
@@ -193,7 +191,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
         }?;
 
         if peer.peer == self.me {
-            self.cache.remove(key).await;
+            self.main_cache.remove(key).await;
         } else {
             let mut client = peer
                 .client

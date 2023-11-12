@@ -18,6 +18,6 @@ fn options_api_test() {
         .grpc_endpoint_builder(Box::new(|endpoint| {
             endpoint.timeout(Duration::from_secs(2))
         }))
-        .https(false)
+        .https()
         .build();
 }
