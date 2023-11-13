@@ -6,33 +6,33 @@ mod options;
 mod routing;
 
 use crate::errors::GroupcacheError;
-use crate::groupcache::Groupcache;
 use anyhow::Result;
 use async_trait::async_trait;
 use groupcache_pb::groupcache_pb::groupcache_client::GroupcacheClient;
-use groupcache_pb::groupcache_pb::groupcache_server::GroupcacheServer;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tonic::transport::Channel;
 
 // expose Options
+pub use groupcache::GroupcacheInner;
+pub use groupcache_pb::groupcache_pb::groupcache_server::GroupcacheServer;
 pub use options::{Options, OptionsBuilder};
 
-// todo: consider moving it to a separate file.
-// think about exporting external modules:
+// todo: think about exporting external modules:
 //    - options
 //    - groupcache (interface, not internal)
+// use pub use to simplify imports for consumer crates.
 
 #[derive(Clone)]
-pub struct GroupcacheWrapper<Value: ValueBounds>(Arc<Groupcache<Value>>);
+pub struct Groupcache<Value: ValueBounds>(Arc<GroupcacheInner<Value>>);
 
-impl<Value: ValueBounds> GroupcacheWrapper<Value> {
-    pub async fn get(&self, key: &Key) -> core::result::Result<Value, GroupcacheError> {
+impl<Value: ValueBounds> Groupcache<Value> {
+    pub async fn get(&self, key: &str) -> core::result::Result<Value, GroupcacheError> {
         self.0.get(key).await
     }
 
-    pub async fn remove(&self, key: &Key) -> core::result::Result<(), GroupcacheError> {
+    pub async fn remove(&self, key: &str) -> core::result::Result<(), GroupcacheError> {
         self.0.remove(key).await
     }
 
@@ -44,16 +44,16 @@ impl<Value: ValueBounds> GroupcacheWrapper<Value> {
         self.0.remove_peer(peer).await
     }
 
-    pub fn grpc_service(&self) -> GroupcacheServer<Groupcache<Value>> {
+    pub fn grpc_service(&self) -> GroupcacheServer<GroupcacheInner<Value>> {
         GroupcacheServer::from_arc(self.0.clone())
     }
 
     pub fn addr(&self) -> SocketAddr {
-        self.0.me.socket
+        self.0.addr()
     }
 
     pub fn new(me: GroupcachePeer, loader: Box<dyn ValueLoader<Value = Value>>) -> Self {
-        GroupcacheWrapper::new_with_options(me, loader, Options::default())
+        Groupcache::new_with_options(me, loader, Options::default())
     }
 
     pub fn new_with_options(
@@ -61,7 +61,7 @@ impl<Value: ValueBounds> GroupcacheWrapper<Value> {
         loader: Box<dyn ValueLoader<Value = Value>>,
         options: Options<Value>,
     ) -> Self {
-        let groupcache = Groupcache::new(me, loader, options);
+        let groupcache = GroupcacheInner::new(me, loader, options);
         Self(Arc::new(groupcache))
     }
 }
@@ -83,7 +83,7 @@ pub trait ValueLoader: Send + Sync {
 
     async fn load(
         &self,
-        key: &Key,
+        key: &str,
     ) -> std::result::Result<Self::Value, Box<dyn std::error::Error + Send + Sync + 'static>>;
 }
 
@@ -126,6 +126,7 @@ impl<T: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static> Val
 
 // todo: look whether this any useful..
 /// Groupcache caches values by [Key] which is plain str.
+/// everywhere we're using &str so let's just use that..
 pub type Key = str;
 
 type GroupcachePeerClient = GroupcacheClient<Channel>;

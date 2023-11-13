@@ -1,5 +1,5 @@
 use crate::metrics::METRIC_GET_SERVER_REQUESTS_TOTAL;
-use crate::{Groupcache, ValueBounds};
+use crate::{GroupcacheInner, ValueBounds};
 use async_trait::async_trait;
 use groupcache_pb::groupcache_pb::{
     groupcache_server, GetRequest, GetResponse, RemoveRequest, RemoveResponse,
@@ -8,7 +8,7 @@ use metrics::counter;
 use tonic::{Request, Response, Status};
 
 #[async_trait]
-impl<Value: ValueBounds> groupcache_server::Groupcache for Groupcache<Value> {
+impl<Value: ValueBounds> groupcache_server::Groupcache for GroupcacheInner<Value> {
     async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
         counter!(METRIC_GET_SERVER_REQUESTS_TOTAL, 1);
 
