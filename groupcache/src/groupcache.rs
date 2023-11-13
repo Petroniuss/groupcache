@@ -1,4 +1,8 @@
 use crate::errors::{DedupedGroupcacheError, GroupcacheError, InternalGroupcacheError};
+use crate::metrics::{
+    METRIC_GET_TOTAL, METRIC_LOCAL_CACHE_HIT_TOTAL, METRIC_LOCAL_LOAD_ERROR_TOTAL,
+    METRIC_LOCAL_LOAD_TOTAL, METRIC_REMOTE_LOAD_ERROR, METRIC_REMOTE_LOAD_TOTAL,
+};
 use crate::routing::{GroupcachePeerWithClient, RoutingState};
 use crate::{GroupcachePeer, GroupcachePeerClient, Key, Options, ValueBounds, ValueLoader};
 use anyhow::{Context, Result};
@@ -11,14 +15,6 @@ use std::sync::{Arc, RwLock};
 use tonic::transport::Endpoint;
 use tonic::IntoRequest;
 
-const METRIC_GET_TOTAL: &str = "groupcache.get_total";
-pub(crate) const METRIC_GET_SERVER_REQUESTS_TOTAL: &str = "groupcache.get_server_requests_total";
-const METRIC_LOCAL_CACHE_HIT_TOTAL: &str = "groupcache.local_cache_hit_total";
-const METRIC_LOCAL_LOAD_TOTAL: &str = "groupcache.local_load_total";
-const METRIC_LOCAL_LOAD_ERROR_TOTAL: &str = "groupcache.local_load_errors";
-const METRIC_REMOTE_LOAD_TOTAL: &str = "groupcache.remote_load_total";
-const METRIC_REMOTE_LOAD_ERROR: &str = "groupcache.remote_load_errors";
-
 pub struct Groupcache<Value: ValueBounds> {
     routing_state: Arc<RwLock<RoutingState>>,
     single_flight_group: SingleFlight<Result<Value, DedupedGroupcacheError>>,
@@ -26,6 +22,7 @@ pub struct Groupcache<Value: ValueBounds> {
     hot_cache: Cache<String, Value>,
     loader: Box<dyn ValueLoader<Value = Value>>,
     config: Config,
+    // todo: this looks wierd
     pub(crate) me: GroupcachePeer,
 }
 

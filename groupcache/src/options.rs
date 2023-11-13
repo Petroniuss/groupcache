@@ -3,6 +3,10 @@ use moka::future::Cache;
 use std::time::Duration;
 use tonic::transport::Endpoint;
 
+static DEFAULT_HOT_CACHE_MAX_CAPACITY: u64 = 10_000;
+static DEFAULT_HOT_CACHE_TIME_TO_LIVE: Duration = Duration::from_secs(30);
+static DEFAULT_GRPC_CLIENT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// [`Options`] are used to customize groupcache.
 ///
 /// In order to construct [`Options`] use [`OptionsBuilder`].
@@ -37,11 +41,12 @@ impl<Value: ValueBounds> OptionsBuilder<Value> {
 
     /// Sets main_cache for groupcache.
     ///
-    /// main_cache is used to store cached values by owner of a given `Key`.
-    /// There is one owner of a key in a set of peers
+    /// main_cache is the cache for items that this peer is the owner of.
+    /// There is one owner of a given key in a set of peers
     /// forming hash ring and this peer stores values in main_cache.
     ///
-    /// By default, default [moka] cache is used.
+    /// By default,
+    /// [moka] cache is used and this setter allows to customize this cache (eviction policy, size etc)
     pub fn main_cache(mut self, main_cache: Cache<String, Value>) -> Self {
         self.main_cache = Some(main_cache);
         self
@@ -49,13 +54,9 @@ impl<Value: ValueBounds> OptionsBuilder<Value> {
 
     /// Sets hot_cache for groupcache.
     ///
-    /// hot_cache is used to store hot values by non-owner peers.
-    /// If a request comes in and it turns out that local process is not the owner,
-    /// groupcache makes a request to the owner.
-    ///
-    /// In order to improve latency, hot_cache caches values received from owners.
+    /// The hot_cache is the cache for items that seem popular
+    /// enough to replicate to this node, even though it's not the owner.
     /// This however may lead to inconsistencies when expiring values (see [`crate::GroupcacheWrapper::remove`]).
-    ///
     ///
     /// By default hot_cache stores up to 10k items and expires after 30s.
     /// Depending on use_case you may either disable hot_cache or tweak time_to_live.
@@ -102,11 +103,12 @@ impl<Value: ValueBounds> Default for Options<Value> {
         let main_cache = Cache::<String, Value>::builder().build();
 
         let hot_cache = Cache::<String, Value>::builder()
-            .max_capacity(10_000)
-            .time_to_live(Duration::from_secs(30))
+            .max_capacity(DEFAULT_HOT_CACHE_MAX_CAPACITY)
+            .time_to_live(DEFAULT_HOT_CACHE_TIME_TO_LIVE)
             .build();
 
-        let grpc_endpoint_builder = Box::new(|e: Endpoint| e.timeout(Duration::from_secs(10)));
+        let grpc_endpoint_builder =
+            Box::new(|e: Endpoint| e.timeout(DEFAULT_GRPC_CLIENT_REQUEST_TIMEOUT));
 
         Self {
             main_cache,

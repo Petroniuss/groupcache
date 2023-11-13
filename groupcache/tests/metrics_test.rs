@@ -41,8 +41,8 @@ pub async fn groupcache_tuple() -> (TestGroupcache, TestGroupcache) {
 }
 
 #[rstest]
-#[case::get("groupcache.get_total")]
-#[case::local_load("groupcache.local_load_total")]
+#[case::get("groupcache_get_total")]
+#[case::local_load("groupcache_local_load_total")]
 #[tokio::test]
 #[serial_test]
 pub async fn metrics_on_fresh_local_load(
@@ -61,8 +61,8 @@ pub async fn metrics_on_fresh_local_load(
 }
 
 #[rstest]
-#[case::load_error("groupcache.get_total")]
-#[case::load_error("groupcache.local_load_errors")]
+#[case::load_error("groupcache_get_total")]
+#[case::load_error("groupcache_local_load_errors")]
 #[tokio::test]
 #[serial_test]
 pub async fn metrics_on_load_failure(
@@ -82,9 +82,9 @@ pub async fn metrics_on_load_failure(
 }
 
 #[rstest]
-#[case::get("groupcache.get_total", 2)]
-#[case::local_load("groupcache.local_load_total", 1)]
-#[case::cache_hit("groupcache.local_cache_hit_total", 1)]
+#[case::get("groupcache_get_total", 2)]
+#[case::local_load("groupcache_local_load_total", 1)]
+#[case::cache_hit("groupcache_local_cache_hit_total", 1)]
 #[tokio::test]
 #[serial_test]
 pub async fn metrics_on_cached_local_load(
@@ -105,9 +105,9 @@ pub async fn metrics_on_cached_local_load(
 }
 
 #[rstest]
-#[case::get("groupcache.get_total", 2)]
-#[case::get_server_reqs("groupcache.get_server_requests_total", 1)]
-#[case::remote_loads("groupcache.remote_load_total", 1)]
+#[case::get("groupcache_get_total", 2)]
+#[case::get_server_reqs("groupcache_get_server_requests_total", 1)]
+#[case::remote_loads("groupcache_remote_load_total", 1)]
 #[tokio::test]
 #[serial_test]
 pub async fn metrics_on_remote_load_test(
@@ -133,10 +133,10 @@ pub async fn metrics_on_remote_load_test(
 }
 
 #[rstest]
-#[case::get("groupcache.get_total", 2)]
-#[case::get_server_reqs("groupcache.get_server_requests_total", 1)]
-#[case::remote_loads("groupcache.remote_load_total", 1)]
-#[case::remote_load_errors("groupcache.remote_load_errors", 1)]
+#[case::get("groupcache_get_total", 2)]
+#[case::get_server_reqs("groupcache_get_server_requests_total", 1)]
+#[case::remote_loads("groupcache_remote_load_total", 1)]
+#[case::remote_load_errors("groupcache_remote_load_errors", 1)]
 #[tokio::test]
 #[serial_test]
 pub async fn metrics_on_remote_load_failure(

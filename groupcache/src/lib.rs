@@ -1,6 +1,7 @@
 mod errors;
 mod groupcache;
 mod http;
+mod metrics;
 mod options;
 mod routing;
 
