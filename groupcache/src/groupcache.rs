@@ -1,6 +1,6 @@
 use crate::errors::{DedupedGroupcacheError, GroupcacheError, InternalGroupcacheError};
-use crate::routing::{PeerWithClient, RoutingState};
-use crate::{Key, Options, Peer, PeerClient, ValueBounds, ValueLoader};
+use crate::routing::{GroupcachePeerWithClient, RoutingState};
+use crate::{GroupcachePeer, GroupcachePeerClient, Key, Options, ValueBounds, ValueLoader};
 use anyhow::{Context, Result};
 use groupcache_pb::groupcache_pb::groupcache_client::GroupcacheClient;
 use groupcache_pb::groupcache_pb::{GetRequest, RemoveRequest};
@@ -22,13 +22,11 @@ const METRIC_REMOTE_LOAD_ERROR: &str = "groupcache.remote_load_errors";
 pub struct Groupcache<Value: ValueBounds> {
     routing_state: Arc<RwLock<RoutingState>>,
     single_flight_group: SingleFlight<Result<Value, DedupedGroupcacheError>>,
-    // cache is used for values that are owned by this peer.
-    cache: Cache<String, Value>,
-    // hot_cache is used for caching values that are owned by other peers.
+    main_cache: Cache<String, Value>,
     hot_cache: Cache<String, Value>,
     loader: Box<dyn ValueLoader<Value = Value>>,
     config: Config,
-    pub(crate) me: Peer,
+    pub(crate) me: GroupcachePeer,
 }
 
 struct Config {
@@ -38,20 +36,14 @@ struct Config {
 
 impl<Value: ValueBounds> Groupcache<Value> {
     pub(crate) fn new(
-        me: Peer,
+        me: GroupcachePeer,
         loader: Box<dyn ValueLoader<Value = Value>>,
-        options: Options,
+        options: Options<Value>,
     ) -> Self {
         let routing_state = Arc::new(RwLock::new(RoutingState::with_local_peer(me)));
 
-        let cache = Cache::<String, Value>::builder()
-            .max_capacity(options.main_cache_capacity)
-            .build();
-
-        let hot_cache = Cache::<String, Value>::builder()
-            .max_capacity(options.hot_cache_capacity)
-            .time_to_live(options.hot_cache_ttl)
-            .build();
+        let main_cache = options.main_cache;
+        let hot_cache = options.hot_cache;
 
         let single_flight_group = SingleFlight::default();
 
@@ -63,7 +55,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
         Self {
             routing_state,
             single_flight_group,
-            cache,
+            main_cache,
             hot_cache,
             loader,
             me,
@@ -81,7 +73,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
 
     async fn get_internal(&self, key: &Key) -> Result<Value, InternalGroupcacheError> {
         counter!(METRIC_GET_TOTAL, 1);
-        if let Some(value) = self.cache.get(key).await {
+        if let Some(value) = self.main_cache.get(key).await {
             counter!(METRIC_LOCAL_CACHE_HIT_TOTAL, 1);
             return Ok(value);
         }
@@ -103,7 +95,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
     async fn get_deduped_instrumented(
         &self,
         key: &Key,
-        peer: PeerWithClient,
+        peer: GroupcachePeerWithClient,
     ) -> Result<Value, InternalGroupcacheError> {
         self.single_flight_group
             .work(key, || async {
@@ -118,11 +110,11 @@ impl<Value: ValueBounds> Groupcache<Value> {
     async fn get_deduped(
         &self,
         key: &Key,
-        peer: PeerWithClient,
+        peer: GroupcachePeerWithClient,
     ) -> Result<Value, InternalGroupcacheError> {
         if peer.peer == self.me {
             let value = self.load_locally_instrumented(key).await?;
-            self.cache.insert(key.to_string(), value.clone()).await;
+            self.main_cache.insert(key.to_string(), value.clone()).await;
             return Ok(value);
         }
 
@@ -157,7 +149,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
     async fn load_remotely_instrumented(
         &self,
         key: &Key,
-        client: &mut PeerClient,
+        client: &mut GroupcachePeerClient,
     ) -> Result<Value, InternalGroupcacheError> {
         counter!(METRIC_REMOTE_LOAD_TOTAL, 1);
         self.load_remotely(key, client).await.map_err(|e| {
@@ -169,7 +161,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
     async fn load_remotely(
         &self,
         key: &Key,
-        client: &mut PeerClient,
+        client: &mut GroupcachePeerClient,
     ) -> Result<Value, InternalGroupcacheError> {
         let response = client
             .get(
@@ -199,7 +191,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
         }?;
 
         if peer.peer == self.me {
-            self.cache.remove(key).await;
+            self.main_cache.remove(key).await;
         } else {
             let mut client = peer
                 .client
@@ -213,7 +205,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
     async fn remove_remotely(
         &self,
         key: &Key,
-        client: &mut PeerClient,
+        client: &mut GroupcachePeerClient,
     ) -> core::result::Result<(), InternalGroupcacheError> {
         let _ = client
             .remove(
@@ -227,7 +219,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
         Ok(())
     }
 
-    pub(crate) async fn add_peer(&self, peer: Peer) -> Result<()> {
+    pub(crate) async fn add_peer(&self, peer: GroupcachePeer) -> Result<()> {
         let contains_peer = {
             let read_lock = self.routing_state.read().unwrap();
             read_lock.contains_peer(&peer)
@@ -244,7 +236,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
         Ok(())
     }
 
-    async fn connect(&self, peer: Peer) -> Result<PeerClient> {
+    async fn connect(&self, peer: GroupcachePeer) -> Result<GroupcachePeerClient> {
         let socket = peer.socket;
         let peer_addr = if self.config.https {
             format!("https://{}", socket)
@@ -258,7 +250,7 @@ impl<Value: ValueBounds> Groupcache<Value> {
         Ok(client)
     }
 
-    pub(crate) async fn remove_peer(&self, peer: Peer) -> Result<()> {
+    pub(crate) async fn remove_peer(&self, peer: GroupcachePeer) -> Result<()> {
         let contains_peer = {
             let read_lock = self.routing_state.read().unwrap();
             read_lock.contains_peer(&peer)

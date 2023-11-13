@@ -1,13 +1,15 @@
 # kubernetes-service-discovery example
 
-This example shows how to use groupcache in a distributed setting:
-- kubernetes API server is used for service discovery
-see [./src/main.rs](./src/main.rs).
-
+This example shows how to run a simple backend with groupcache with multiple instances on k8s.
+- simple endpoint is implemented `/key/:key_id` that loads a value for :key_id from groupcache,
+  which mimics a fetch from database lasting 100ms.
+- kubernetes API server is used for service discovery.
+- backend is written using axum framework,
+  exposing both application HTTP/JSON endpoints and groupcache gRPC endpoint on the same port.
 
 ## Running example on minikube
 
-Make sure all dependencies are installed and running (see below).
+Make sure all dependencies are installed and running [see Dependencies](#dependencies).
 
 Deploy groupcache-powered-backend with a couple of instances:
 ```bash
@@ -37,7 +39,7 @@ kubectl delete job.batch/load-test-job
 
 ### Minikube
 
-Download minikube using your preferred method https://minikube.sigs.k8s.io/docs/start/.
+Download minikube using your preferred method <https://minikube.sigs.k8s.io/docs/start/>.
 
 Start kubernetes locally:
 ```bash
@@ -51,14 +53,14 @@ To build example as a docker image run:
 docker build . -t groupcache-powered-backend:latest
 ```
 
-Load image in minikube;
+Load image in minikube:
 ```bash
 minikube image load groupcache-powered-backend:latest
 ```
 
 ### Observability
 Optional, but allows you to see what is going on in the cluster and see metrics exported by groupcache:
-- `groupcache.*`
+- `groupcache_*`
 
 And metrics exported from axum via prometheus_exporter crate:
 - `axum_*`

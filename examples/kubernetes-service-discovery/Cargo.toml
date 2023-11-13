@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-groupcache = { git = "https://github.com/Petroniuss/groupcache.git" }
+# This pulls version from main branch so that docker build works (docker was confused by paths)
+#groupcache = { git = "https://github.com/Petroniuss/groupcache.git" }
+# todo: use this when docker build works
+groupcache = { path = "../../groupcache" }
 
 tonic = "0.10.0"
 axum = "0.6.20"

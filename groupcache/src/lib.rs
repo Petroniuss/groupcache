@@ -1,6 +1,7 @@
 mod errors;
 mod groupcache;
-pub mod http;
+mod http;
+mod options;
 mod routing;
 
 use crate::errors::GroupcacheError;
@@ -12,8 +13,15 @@ use groupcache_pb::groupcache_pb::groupcache_server::GroupcacheServer;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::Channel;
+
+// expose Options
+pub use options::{Options, OptionsBuilder};
+
+// todo: consider moving it to a separate file.
+// think about exporting external modules:
+//    - options
+//    - groupcache (interface, not internal)
 
 #[derive(Clone)]
 pub struct GroupcacheWrapper<Value: ValueBounds>(Arc<Groupcache<Value>>);
@@ -27,11 +35,11 @@ impl<Value: ValueBounds> GroupcacheWrapper<Value> {
         self.0.remove(key).await
     }
 
-    pub async fn add_peer(&self, peer: Peer) -> Result<()> {
+    pub async fn add_peer(&self, peer: GroupcachePeer) -> Result<()> {
         self.0.add_peer(peer).await
     }
 
-    pub async fn remove_peer(&self, peer: Peer) -> Result<()> {
+    pub async fn remove_peer(&self, peer: GroupcachePeer) -> Result<()> {
         self.0.remove_peer(peer).await
     }
 
@@ -42,29 +50,32 @@ impl<Value: ValueBounds> GroupcacheWrapper<Value> {
     pub fn addr(&self) -> SocketAddr {
         self.0.me.socket
     }
-}
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct Peer {
-    pub(crate) socket: SocketAddr,
-}
+    pub fn new(me: GroupcachePeer, loader: Box<dyn ValueLoader<Value = Value>>) -> Self {
+        GroupcacheWrapper::new_with_options(me, loader, Options::default())
+    }
 
-impl From<SocketAddr> for Peer {
-    fn from(value: SocketAddr) -> Self {
-        Self { socket: value }
+    pub fn new_with_options(
+        me: GroupcachePeer,
+        loader: Box<dyn ValueLoader<Value = Value>>,
+        options: Options<Value>,
+    ) -> Self {
+        let groupcache = Groupcache::new(me, loader, options);
+        Self(Arc::new(groupcache))
     }
 }
 
-pub trait ValueBounds: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static {}
-
-impl<T: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static> ValueBounds for T {}
-
-pub type Key = str;
-
 /// [ValueLoader]
 ///
-/// Logic for loading a value for a particular key - which can be potentially expensive.
+/// Loads a value for a particular key - which can be potentially expensive.
 /// Groupcache is responsible for calling load on whichever node is responsible for a particular key and caching that value.
+/// [ValueLoader::Value]s will be cached by groupcache according to passed options.
+///
+/// [ValueLoader::Value] cached by groupcache must satisfy [ValueBounds].
+///
+/// If you want to load resources of different types,
+/// your implementation of load may distinguish desired type by prefix of [Key] and return an enum.
+/// This is a deviation from original groupcache library which implemented separate groups.
 #[async_trait]
 pub trait ValueLoader: Send + Sync {
     type Value: ValueBounds;
@@ -75,78 +86,62 @@ pub trait ValueLoader: Send + Sync {
     ) -> std::result::Result<Self::Value, Box<dyn std::error::Error + Send + Sync + 'static>>;
 }
 
-type PeerClient = GroupcacheClient<Channel>;
+/// [ValueLoader::Value] cached by groupcache must satisfy [ValueBounds]:
+/// - serializable/deserializable: because they're sent over the network,
+/// - cloneable: because value is loaded once and then multiplexed to all callers via clone,
+/// - Send + Sync + 'static: because they're shared across potentially many threads.
+///
+/// Typical data structs should automatically conform to this trait.
+/// ```
+///     use serde::{Deserialize, Serialize};
+///     #[derive(Clone, Deserialize, Serialize)]
+///     struct DatabaseEntity {
+///         id: String,
+///         value: String,
+///     }
+/// ```
+///
+/// For small datastructures plain struct should suffice but if cached [ValueLoader::Value]
+/// was large enough it might be worth it to wrap it inside [Arc] so that cached values are
+/// are stored in memory only once and reference the same piece of data.
+///
+/// ```
+///     use std::sync::Arc;
+///     use serde::{Deserialize, Serialize};
+///
+///     #[derive(Clone, Deserialize, Serialize)]
+///     struct Wrapped (Arc<Entity>);
+///
+///     #[derive(Clone, Deserialize, Serialize)]
+///     struct Entity {
+///         id: String,
+///         value: String,
+///     }
+/// ```
+pub trait ValueBounds: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static {}
 
-#[derive(Default)]
-pub struct OptionsBuilder {
-    pub main_cache_capacity: Option<u64>,
-    pub hot_cache_capacity: Option<u64>,
-    pub hot_cache_ttl: Option<Duration>,
-    pub https: Option<bool>,
-    pub grpc_endpoint_builder: Option<Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>>,
+/// Automatically implement ValueBounds for types that satisfy the trait.
+impl<T: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static> ValueBounds for T {}
+
+// todo: look whether this any useful..
+/// Groupcache caches values by [Key] which is plain str.
+pub type Key = str;
+
+type GroupcachePeerClient = GroupcacheClient<Channel>;
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct GroupcachePeer {
+    pub(crate) socket: SocketAddr,
 }
 
-pub(crate) struct Options {
-    pub(crate) main_cache_capacity: u64,
-    pub(crate) hot_cache_capacity: u64,
-    pub(crate) hot_cache_ttl: Duration,
-    pub(crate) https: bool,
-    pub(crate) grpc_endpoint_builder: Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>,
-}
-
-impl Default for Options {
-    fn default() -> Self {
-        Self {
-            main_cache_capacity: 100_000,
-            hot_cache_capacity: 10_000,
-            hot_cache_ttl: Duration::from_secs(30),
-            https: false,
-            grpc_endpoint_builder: Box::new(|e| e.timeout(Duration::from_secs(2))),
-        }
+impl GroupcachePeer {
+    pub fn from_socket(value: SocketAddr) -> Self {
+        From::from(value)
     }
 }
 
-impl From<OptionsBuilder> for Options {
-    fn from(builder: OptionsBuilder) -> Self {
-        let default = Options::default();
-
-        let cache_capacity = builder
-            .main_cache_capacity
-            .unwrap_or(default.main_cache_capacity);
-
-        let hot_cache_capacity = builder
-            .hot_cache_capacity
-            .unwrap_or(default.hot_cache_capacity);
-
-        let hot_cache_timeout_seconds = builder.hot_cache_ttl.unwrap_or(default.hot_cache_ttl);
-
-        let https = builder.https.unwrap_or(default.https);
-
-        let grpc_endpoint_builder = builder
-            .grpc_endpoint_builder
-            .unwrap_or(default.grpc_endpoint_builder);
-
-        Self {
-            main_cache_capacity: cache_capacity,
-            hot_cache_capacity,
-            hot_cache_ttl: hot_cache_timeout_seconds,
-            https,
-            grpc_endpoint_builder,
-        }
-    }
-}
-
-impl<Value: ValueBounds> GroupcacheWrapper<Value> {
-    pub fn new(me: Peer, loader: Box<dyn ValueLoader<Value = Value>>) -> Self {
-        GroupcacheWrapper::new_with_options(me, loader, OptionsBuilder::default())
-    }
-
-    pub fn new_with_options(
-        me: Peer,
-        loader: Box<dyn ValueLoader<Value = Value>>,
-        options: OptionsBuilder,
-    ) -> Self {
-        let groupcache = Groupcache::new(me, loader, options.into());
-        Self(Arc::new(groupcache))
+impl From<SocketAddr> for GroupcachePeer {
+    fn from(value: SocketAddr) -> Self {
+        Self { socket: value }
     }
 }

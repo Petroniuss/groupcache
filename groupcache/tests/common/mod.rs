@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use anyhow::Result;
 use async_trait::async_trait;
 use groupcache::{GroupcacheWrapper, Key, OptionsBuilder};
+use moka::future::CacheBuilder;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use std::future::{pending, Future};
@@ -110,14 +111,9 @@ pub async fn spawn_groupcache_instance(
     let addr = listener.local_addr()?;
     let groupcache = {
         let loader = TestCacheLoader::new(instance_id);
-        GroupcacheWrapper::<CachedValue>::new_with_options(
-            addr.into(),
-            Box::new(loader),
-            OptionsBuilder {
-                hot_cache_ttl: Some(HOT_CACHE_TTL),
-                ..OptionsBuilder::default()
-            },
-        )
+        let hot_cache = CacheBuilder::default().time_to_live(HOT_CACHE_TTL).build();
+        let options = OptionsBuilder::new().hot_cache(hot_cache).build();
+        GroupcacheWrapper::<CachedValue>::new_with_options(addr.into(), Box::new(loader), options)
     };
 
     let server = groupcache.grpc_service();
