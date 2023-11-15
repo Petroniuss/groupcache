@@ -11,5 +11,5 @@ mod routing;
 
 pub use groupcache::{Groupcache, GroupcachePeer, ValueBounds, ValueLoader};
 pub use groupcache_inner::GroupcacheInner;
-pub use groupcache_pb::groupcache_pb::groupcache_server::GroupcacheServer;
+pub use groupcache_pb::GroupcacheServer;
 pub use options::{Options, OptionsBuilder};

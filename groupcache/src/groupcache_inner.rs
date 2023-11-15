@@ -9,8 +9,8 @@ use crate::metrics::{
 use crate::routing::{GroupcachePeerWithClient, RoutingState};
 use crate::Options;
 use anyhow::{Context, Result};
-use groupcache_pb::groupcache_pb::groupcache_client::GroupcacheClient;
-use groupcache_pb::groupcache_pb::{GetRequest, RemoveRequest};
+use groupcache_pb::GroupcacheClient;
+use groupcache_pb::{GetRequest, RemoveRequest};
 use metrics::counter;
 use moka::future::Cache;
 use singleflight_async::SingleFlight;

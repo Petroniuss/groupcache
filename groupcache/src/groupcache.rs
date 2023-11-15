@@ -4,8 +4,8 @@
 use crate::errors::GroupcacheError;
 use crate::{GroupcacheInner, Options};
 use async_trait::async_trait;
-use groupcache_pb::groupcache_pb::groupcache_client::GroupcacheClient;
-use groupcache_pb::groupcache_pb::groupcache_server::GroupcacheServer;
+use groupcache_pb::GroupcacheClient;
+use groupcache_pb::GroupcacheServer;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -116,18 +116,21 @@ impl<Value: ValueBounds> Groupcache<Value> {
         self.0.remove_peer(peer).await
     }
 
+    /// Retrieves underlying groupcache gRPC server implementation.
+    ///
+    /// Library doesn't start gRPC server automatically, it's instead responsibility of an application to do so.
+    /// It is done this way to allow for customisations (tracing, metrics etc), see examples.
     pub fn grpc_service(&self) -> GroupcacheServer<GroupcacheInner<Value>> {
         GroupcacheServer::from_arc(self.0.clone())
     }
 
+    /// Returns address of this peer.
     pub fn addr(&self) -> SocketAddr {
         self.0.addr()
     }
 }
 
-/// [ValueLoader]
-///
-/// Loads a value for a particular key - which can be potentially expensive.
+/// [ValueLoader] loads a value for a particular key - which can be potentially expensive.
 /// Groupcache is responsible for calling load on whichever node is responsible for a particular key and caching that value.
 /// [ValueLoader::Value]s will be cached by groupcache according to passed options.
 ///
