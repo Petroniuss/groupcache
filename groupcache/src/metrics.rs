@@ -8,13 +8,13 @@
 //!
 //! For meaning of each metric, see below.
 
-/// Any GET request, including from peers
+/// Any GET request, including from peers.
 pub(crate) const METRIC_GET_TOTAL: &str = "groupcache_get_total";
 
-/// GETs that came over the network from peers
+/// GETs that came over the network from peers.
 pub(crate) const METRIC_GET_SERVER_REQUESTS_TOTAL: &str = "groupcache_get_server_requests_total";
 
-/// Local cache hit (without going over the network or loading a value using [crate::groupcache::ValueLoader])
+/// Local cache hit (without going over the network or loading a value using [crate::groupcache::ValueLoader]).
 pub(crate) const METRIC_LOCAL_CACHE_HIT_TOTAL: &str = "groupcache_local_cache_hit_total";
 
 /// Total calls to [`crate::groupcache::ValueLoader::load`]

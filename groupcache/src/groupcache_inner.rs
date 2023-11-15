@@ -19,6 +19,7 @@ use std::sync::{Arc, RwLock};
 use tonic::transport::Endpoint;
 use tonic::IntoRequest;
 
+/// Core implementation of groupcache API.
 pub struct GroupcacheInner<Value: ValueBounds> {
     routing_state: Arc<RwLock<RoutingState>>,
     single_flight_group: SingleFlight<Result<Value, DedupedGroupcacheError>>,

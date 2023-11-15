@@ -1,11 +1,10 @@
-// todo: probably include markdown.md here
-// possibly add
+#![doc = include_str!("../../readme.md")]
 
 mod errors;
 mod groupcache;
 mod groupcache_inner;
 mod http;
-mod metrics;
+pub mod metrics;
 mod options;
 mod routing;
 
