@@ -1,4 +1,4 @@
-use crate::ValueBounds;
+use crate::groupcache::ValueBounds;
 use moka::future::Cache;
 use std::time::Duration;
 use tonic::transport::Endpoint;
@@ -56,7 +56,7 @@ impl<Value: ValueBounds> OptionsBuilder<Value> {
     ///
     /// The hot_cache is the cache for items that seem popular
     /// enough to replicate to this node, even though it's not the owner.
-    /// This however may lead to inconsistencies when expiring values (see [`crate::Groupcache::remove`]).
+    /// This however may lead to inconsistencies when expiring values (see [`crate::groupcache::Groupcache::remove`]).
     ///
     /// By default hot_cache stores up to 10k items and expires after 30s.
     /// Depending on use_case you may either disable hot_cache or tweak time_to_live.
@@ -78,7 +78,7 @@ impl<Value: ValueBounds> OptionsBuilder<Value> {
 
     /// When connecting to peers, use https instead of http.
     ///
-    /// Note that this requires you to configure server running [`crate::Groupcache::grpc_service`] to handle TLS.
+    /// Note that this requires you to configure server running [`crate::groupcache::Groupcache::grpc_service`] to handle TLS.
     /// Look into tonic/axum documentation how to do so.
     ///
     /// By default http is used.

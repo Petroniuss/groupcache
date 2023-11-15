@@ -3,7 +3,8 @@
 use anyhow::anyhow;
 use anyhow::Result;
 use async_trait::async_trait;
-use groupcache::{Groupcache, OptionsBuilder};
+use groupcache::Groupcache;
+use groupcache::OptionsBuilder;
 use moka::future::CacheBuilder;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;

@@ -1,5 +1,6 @@
+use crate::groupcache::ValueBounds;
 use crate::metrics::METRIC_GET_SERVER_REQUESTS_TOTAL;
-use crate::{GroupcacheInner, ValueBounds};
+use crate::GroupcacheInner;
 use async_trait::async_trait;
 use groupcache_pb::groupcache_pb::{
     groupcache_server, GetRequest, GetResponse, RemoveRequest, RemoveResponse,

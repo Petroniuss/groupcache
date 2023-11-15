@@ -28,5 +28,8 @@ pub(crate) enum InternalGroupcacheError {
     Deduped(#[from] DedupedGroupcacheError),
 
     #[error(transparent)]
+    Connection(#[from] tonic::transport::Error),
+
+    #[error(transparent)]
     CatchAll(#[from] anyhow::Error),
 }

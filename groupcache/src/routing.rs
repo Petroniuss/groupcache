@@ -1,4 +1,4 @@
-use crate::{GroupcachePeer, GroupcachePeerClient};
+use crate::groupcache::{GroupcachePeer, GroupcachePeerClient};
 use anyhow::{Context, Result};
 use hashring::HashRing;
 use std::collections::HashMap;
