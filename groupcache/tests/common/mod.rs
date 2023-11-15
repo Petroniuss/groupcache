@@ -3,7 +3,8 @@
 use anyhow::anyhow;
 use anyhow::Result;
 use async_trait::async_trait;
-use groupcache::{GroupcacheWrapper, Key, OptionsBuilder};
+use groupcache::Groupcache;
+use groupcache::OptionsBuilder;
 use moka::future::CacheBuilder;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
@@ -113,7 +114,7 @@ pub async fn spawn_groupcache_instance(
         let loader = TestCacheLoader::new(instance_id);
         let hot_cache = CacheBuilder::default().time_to_live(HOT_CACHE_TTL).build();
         let options = OptionsBuilder::new().hot_cache(hot_cache).build();
-        GroupcacheWrapper::<CachedValue>::new_with_options(addr.into(), Box::new(loader), options)
+        Groupcache::<CachedValue>::new_with_options(addr.into(), Box::new(loader), options)
     };
 
     let server = groupcache.grpc_service();
@@ -196,7 +197,7 @@ pub async fn successful_get_opts(key: &str, groupcache: TestGroupcache, opts: Ge
     }
 }
 
-pub type TestGroupcache = GroupcacheWrapper<CachedValue>;
+pub type TestGroupcache = Groupcache<CachedValue>;
 
 pub type CachedValue = String;
 
@@ -213,7 +214,7 @@ impl TestCacheLoader {
         }
     }
 
-    pub fn count_loads(&self, key: &Key) -> Result<i32> {
+    pub fn count_loads(&self, key: &str) -> Result<i32> {
         let mut lock = self.load_counter.write().unwrap();
         let counter = lock.entry(key.to_string()).or_insert(0);
         *counter += 1;
@@ -228,7 +229,7 @@ impl groupcache::ValueLoader for TestCacheLoader {
 
     async fn load(
         &self,
-        key: &Key,
+        key: &str,
     ) -> std::result::Result<Self::Value, Box<dyn std::error::Error + Send + Sync + 'static>> {
         let load_counter = self.count_loads(key)?;
         return if !key.contains("error") && !key.contains("_13") {

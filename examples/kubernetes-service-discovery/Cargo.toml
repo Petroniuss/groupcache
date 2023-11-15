@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 # This pulls version from main branch so that docker build works (docker was confused by paths)
+# Uncomment this line and delete the next one, when trying to build the example with docker.
 #groupcache = { git = "https://github.com/Petroniuss/groupcache.git" }
-# todo: use this when docker build works
 groupcache = { path = "../../groupcache" }
 
 tonic = "0.10.0"

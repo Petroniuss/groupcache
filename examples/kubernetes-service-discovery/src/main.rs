@@ -10,7 +10,7 @@ use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
-use groupcache::GroupcacheWrapper;
+use groupcache::Groupcache;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::ListParams;
 use kube::{Api, Client};
@@ -119,7 +119,7 @@ async fn main() -> Result<()> {
 /// so that groupcache internally can update its routing table.
 async fn monitor_groupcache_pods(
     pods_api: Api<Pod>,
-    groupcache: GroupcacheWrapper<CachedValue>,
+    groupcache: Groupcache<CachedValue>,
     pod_ip: String,
 ) {
     let mut current_pods = Box::<HashSet<GroupcachePod>>::default();
@@ -219,7 +219,7 @@ struct GetResponseFailure {
 /// Simple HTTP handler that forwards request to groupcache and returns a JSON response.
 async fn get_key_handler(
     Path(key): Path<String>,
-    State(groupcache): State<GroupcacheWrapper<CachedValue>>,
+    State(groupcache): State<Groupcache<CachedValue>>,
 ) -> Response {
     log::info!("get_rpc_handler, {}!", key);
 

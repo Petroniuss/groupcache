@@ -2,7 +2,7 @@ mod common;
 
 use anyhow::Result;
 use common::*;
-use groupcache::GroupcacheWrapper;
+use groupcache::Groupcache;
 use pretty_assertions::assert_eq;
 
 use std::net::SocketAddr;
@@ -13,7 +13,7 @@ async fn test_when_there_is_only_one_peer_it_should_handle_entire_key_space() ->
     let groupcache = {
         let loader = TestCacheLoader::new("1");
         let addr: SocketAddr = "127.0.0.1:8080".parse()?;
-        GroupcacheWrapper::<CachedValue>::new(addr.into(), Box::new(loader))
+        Groupcache::<CachedValue>::new(addr.into(), Box::new(loader))
     };
 
     let key = "K-some-random-key-d2k";

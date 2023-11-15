@@ -1,4 +1,4 @@
-use crate::{GroupcachePeer, GroupcachePeerClient, Key};
+use crate::groupcache::{GroupcachePeer, GroupcachePeerClient};
 use anyhow::{Context, Result};
 use hashring::HashRing;
 use std::collections::HashMap;
@@ -34,14 +34,14 @@ impl RoutingState {
         }
     }
 
-    pub(crate) fn lookup_peer(&self, key: &Key) -> Result<GroupcachePeerWithClient> {
+    pub(crate) fn lookup_peer(&self, key: &str) -> Result<GroupcachePeerWithClient> {
         let peer = self.peer_for_key(key)?;
         let client = self.connected_client(&peer);
 
         Ok(GroupcachePeerWithClient { peer, client })
     }
 
-    fn peer_for_key(&self, key: &Key) -> Result<GroupcachePeer> {
+    fn peer_for_key(&self, key: &str) -> Result<GroupcachePeer> {
         let vnode = self
             .ring
             .get(&key)

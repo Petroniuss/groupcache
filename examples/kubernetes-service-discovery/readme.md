@@ -48,7 +48,7 @@ minikube start
 
 ### Backend docker image
 
-To build example as a docker image run:
+To build example as a docker, uncomment `groupcache` dependency in `Cargo.toml` and run:
 ```bash
 docker build . -t groupcache-powered-backend:latest
 ```
@@ -66,6 +66,8 @@ And metrics exported from axum via prometheus_exporter crate:
 - `axum_*`
 
 There is a prepared dashboard for HTTP requests in grafana called `groupcache-powered-backend`.
+![grafana](../../imgs/grafana.png)
+
 
 Installing prometheus:
 ```bash
