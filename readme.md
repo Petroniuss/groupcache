@@ -1,6 +1,8 @@
 # groupcache
-
-![codecov](https://codecov.io/gh/petroniuss/groupcache/main/graph/badge.svg)
+[![Crates.io](https://img.shields.io/crates/v/groupcache.svg)](https://crates.io/crates/groupcache)
+[![Documentation](https://docs.rs/groupcache/badge.svg)](https://docs.rs/groupcache)
+[![Codecov](https://codecov.io/gh/petroniuss/groupcache/main/graph/badge.svg)](https://codecov.io/gh/petroniuss/groupcache)
+[![Dependency status](https://deps.rs/repo/github/petroniuss/groupcache/status.svg)](https://deps.rs/repo/github/petroniuss/groupcache)
 
 This is intended to be a port of a popular distributed caching library from Go [groupcache](https://github.com/golang/groupcache) to Rust.
 
