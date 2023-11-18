@@ -2,7 +2,7 @@ mod common;
 
 use anyhow::Result;
 use common::*;
-use groupcache::Groupcache;
+use groupcache::{Groupcache, GroupcachePeer};
 use pretty_assertions::assert_eq;
 
 use std::net::SocketAddr;
@@ -96,6 +96,18 @@ async fn test_when_remote_get_fails_during_load_then_load_locally() -> Result<()
         err.to_string()
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_when_peer_is_removed_traffic_is_no_longer_routed_to_it() -> Result<()> {
+    let (instance_one, instance_two) = two_connected_instances().await?;
+    instance_one
+        .remove_peer(GroupcachePeer::from_socket(instance_two.addr()))
+        .await?;
+    let key = key_owned_by_instance(instance_two.clone());
+
+    successful_get(&key, Some("1"), instance_one.clone()).await;
     Ok(())
 }
 
