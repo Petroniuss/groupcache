@@ -98,6 +98,10 @@ impl<Value: ValueBounds> Groupcache<Value> {
     /// this method will return an error and won't update the routing table.
     ///
     /// Upon success some portion of requests will be forwarded to this peer.
+    ///
+    /// Note that [`Groupcache::add_peer`] isn't broadcasted to other peers,
+    /// and each groupcache peer needs to update its routing table via the same call.
+    /// In other words this only updates local routing table, not routing table of all nodes in the cluster.
     pub async fn add_peer(&self, peer: GroupcachePeer) -> Result<(), GroupcacheError> {
         self.0.add_peer(peer).await
     }
@@ -112,6 +116,10 @@ impl<Value: ValueBounds> Groupcache<Value> {
     /// so that routing table/consistent hashing ring can be updated.
     ///
     /// Requests will no longer be forwarded to this peer.
+    ///
+    /// Note that [`Groupcache::remove_peer`] isn't broadcasted to other peers,
+    /// and each groupcache peer needs to update its routing table via the same call.
+    /// In other words this only updates local routing table, not routing table of all nodes in the cluster.
     pub async fn remove_peer(&self, peer: GroupcachePeer) -> Result<(), GroupcacheError> {
         self.0.remove_peer(peer).await
     }
