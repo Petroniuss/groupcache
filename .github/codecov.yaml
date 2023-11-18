@@ -14,6 +14,7 @@ coverage:
 # Test files aren't important for coverage
 ignore:
   - "tests"
+  - "groupcache-pb" # generated code
 
 # Make comments less noisy
 comment:
