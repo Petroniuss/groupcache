@@ -13,7 +13,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: cargo generate-lockfile
       if: hashFiles('Cargo.lock') == ''
       run: cargo generate-lockfile
@@ -24,13 +24,10 @@ jobs:
     - name: Verify formatting
       run: cargo fmt --all --check
   coverage:
-    # use llvm-cov to build and collect coverage and outputs in a format that is compatible with codecov.io
     runs-on: ubuntu-latest
     name: ubuntu / stable / coverage
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
         with:
