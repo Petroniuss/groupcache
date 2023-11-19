@@ -66,8 +66,7 @@ And metrics exported from axum via prometheus_exporter crate:
 - `axum_*`
 
 There is a prepared dashboard for HTTP requests in grafana called `groupcache-powered-backend`.
-![grafana](../../imgs/grafana.png)
-
+<img width="1715" alt="image" src="https://github.com/Petroniuss/groupcache/assets/31375809/49067e80-158b-4d45-ab0c-ba0c67b22c32">
 
 Installing prometheus:
 ```bash
