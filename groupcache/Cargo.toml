@@ -22,6 +22,6 @@ metrics = "0.21.1"
 cargo-husky = { workspace = true }
 pretty_assertions = "1.4.0"
 tokio-stream = { version = "0.1.14", features = ["net"] }
-tokio = { version = "1.12.0", features = ["time", "test-util", "rt", "macros"] }
+tokio = { version = "1.34", features = ["time", "test-util", "rt", "macros"] }
 rstest = "0.18.2"
 serial_test = "2.0.0"
