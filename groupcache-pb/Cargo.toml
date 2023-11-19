@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 prost = "0.12"
-tonic = "0.10.0"
-anyhow = "1.0.75"
-tonic-build = { version= "0.10.0", features = ["prost"] }
+tonic = "0.10"
+anyhow = "1"
+tonic-build = { version= "0.10", features = ["prost"] }
