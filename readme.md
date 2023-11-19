@@ -27,7 +27,7 @@ shards by key to select which peer is responsible for that key. Unlike memcached
 
 - comes with a cache filling mechanism. Whereas memcached just says "Sorry, cache miss", often resulting in a thundering herd of database (or whatever) loads from an unbounded number of clients (which has resulted in several fun outages), groupcache coordinates cache fills such that only one load in one process of an entire replicated set of processes populates the cache, then multiplexes the loaded value to all callers.
 
-- does not support versioned values. If key "foo" is value "bar", key "foo" must always be "bar". There are neither cache expiration times, nor explicit cache evictions. Thus, there is also no CAS, nor Increment/Decrement. This also means that groupcache....
+- does not support versioned values. If key `"foo"` is value `"bar"`, key `"foo"` must always be `"bar"`. There are neither cache expiration times, nor explicit cache evictions. Thus, there is also no CAS, nor Increment/Decrement. This also means that groupcache....
 
 - ... supports automatic mirroring of super-hot items to multiple processes. This prevents memcached hot spotting where a machine's CPU and/or NIC are overloaded by very popular keys/values.
 
@@ -38,14 +38,14 @@ In a nutshell, a groupcache lookup of `Get("foo")` looks like:
 
 (On machine #5 of a set of N machines running the same code)
 
-- Is the value of "foo" in local memory because it's super hot? If so, use it.
+- Is the value of `"foo"` in local memory because it's super hot? If so, use it.
 
-- Is the value of "foo" in local memory because peer #5 (the current peer) is the owner of it? If so, use it.
+- Is the value of `"foo"` in local memory because peer `#5` (the current peer) is the owner of it? If so, use it.
 
-- Amongst all the peers in my set of N, am I the owner of the key "foo"? (e.g. does it consistent hash to 5?) If so, load it. If other callers come in, via the same process or via RPC requests from peers, they block waiting for the load to finish and get the same answer. If not, RPC to the peer that's the owner and get the answer. If the RPC fails, just load it locally (still with local dup suppression).
+- Amongst all the peers in my set of N, am I the owner of the key `"foo"`? (e.g. does it consistent hash to 5?) If so, load it. If other callers come in, via the same process or via RPC requests from peers, they block waiting for the load to finish and get the same answer. If not, RPC to the peer that's the owner and get the answer. If the RPC fails, just load it locally (still with local dup suppression).
 
 ## Examples
- - There is one example showing how to run groupcache alongside a simple axum server deployed on k8s, see [examples/kubernetes-service-discovery](examples/kubernetes-service-discovery).
+ - There is one example showing how to run groupcache alongside a simple axum server deployed on k8s, see [examples/kubernetes-service-discovery](https://github.com/Petroniuss/groupcache/tree/main/examples/kubernetes-service-discovery).
 
 ## Documentation
 See <https://docs.rs/groupcache> and <https://docs.rs/groupcache/struct.Groupcache.html>
