@@ -1,6 +1,7 @@
 [package]
 name = "groupcache"
 version = "0.1.0"
+authors = ["Patryk Wojtyczek"]
 edition = "2021"
 categories = ["caching", "web-programming", "concurrency", "asynchronous"]
 description = """
@@ -13,7 +14,6 @@ keywords = ["distributed", "cache", "shard", "memcached", "gRPC"]
 license = "MIT"
 readme = "../readme.md"
 repository = "https://github.com/Petroniuss/groupcache"
-rust-version = "1.70"
 
 [dependencies]
 groupcache-pb = { path = "../groupcache-pb" }
