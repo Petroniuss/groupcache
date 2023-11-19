@@ -2,6 +2,18 @@
 name = "groupcache"
 version = "0.1.0"
 edition = "2021"
+categories = ["caching", "web-programming", "concurrency", "asynchronous"]
+description = """
+groupcache is a distributed caching and cache-filling library, \
+intended as a replacement for a pool of memcached nodes in many cases. \
+It shards by key to select which peer is responsible for that key.\
+"""
+homepage = "https://github.com/Petroniuss/groupcache"
+keywords = ["distributed", "cache", "shard", "memcached", "gRPC"]
+license = "MIT"
+readme = "../readme.md"
+repository = "https://github.com/Petroniuss/groupcache"
+rust-version = "1.70"
 
 [dependencies]
 groupcache-pb = { path = "../groupcache-pb" }
