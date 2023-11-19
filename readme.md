@@ -19,9 +19,7 @@ groupcache is a distributed caching and cache-filling library, intended as a rep
 - Still does not implement CAS, Increment/Decrement but supports cache invalidation.
   - Care must be taken to handle stale values from `hot_cache`, see documentation for `Options`.
 
-## Description from original repository
-
-### Comparison to memcached
+## Comparison to memcached (from original repository)
 
 #### Like memcached, groupcache:
 shards by key to select which peer is responsible for that key. Unlike memcached, groupcache:
