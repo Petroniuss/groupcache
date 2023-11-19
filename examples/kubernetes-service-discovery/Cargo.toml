@@ -8,22 +8,22 @@ edition = "2021"
 # Uncomment this line and delete the next one, when trying to build the example with docker.
 #groupcache = { git = "https://github.com/Petroniuss/groupcache.git" }
 groupcache = { path = "../../groupcache" }
+tonic = "0.10"
+axum = "0.6"
 
-tonic = "0.10.0"
-axum = "0.6.20"
-tower = { version = "0.4.13", features = ["steer"] }
-tower-http = { version = "0.4.4", features = ["trace"] }
-tokio = { version = "1.12.0", features = ["full"] }
+tower = { version = "0.4", features = ["steer"] }
+tower-http = { version = "0.4", features = ["trace"] }
+tokio = { version = "1", features = ["full"] }
 
-serde = { version = "1.0.130", features = ["derive", "rc"] }
-serde_json = "1.0.68"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-axum-prometheus = "0.4.0"
+axum-prometheus = "0.4"
 
-anyhow = "1.0.72"
-async-trait = "0.1.72"
+anyhow = "1"
+async-trait = "0.1"
 
 kube = { version = "0.87.1", features = ["runtime", "derive"] }
 k8s-openapi = { version = "0.20.0", features = ["latest"] }
