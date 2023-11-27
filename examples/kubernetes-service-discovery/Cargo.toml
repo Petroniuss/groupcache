@@ -10,7 +10,7 @@ publish = false
 #groupcache = { git = "https://github.com/Petroniuss/groupcache.git" }
 groupcache = { path = "../../groupcache" }
 tonic = "0.10"
-axum = "0.6"
+axum = "0.7"
 
 tower = { version = "0.4", features = ["steer"] }
 tower-http = { version = "0.4", features = ["trace"] }
