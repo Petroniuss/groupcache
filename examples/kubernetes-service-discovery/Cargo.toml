@@ -13,7 +13,7 @@ tonic = "0.10"
 axum = "0.6"
 
 tower = { version = "0.4", features = ["steer"] }
-tower-http = { version = "0.4", features = ["trace"] }
+tower-http = { version = "0.5", features = ["trace"] }
 tokio = { version = "1.34", features = ["full"] }
 
 serde = { version = "1", features = ["derive", "rc"] }
