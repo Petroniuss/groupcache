@@ -10,18 +10,18 @@ publish = false
 #groupcache = { git = "https://github.com/Petroniuss/groupcache.git" }
 groupcache = { path = "../../groupcache" }
 tonic = "0.10"
-axum = "0.6"
+axum = "0.7"
 
 tower = { version = "0.4", features = ["steer"] }
-tower-http = { version = "0.4", features = ["trace"] }
-tokio = { version = "1.34", features = ["full"] }
+tower-http = { version = "0.5.0", features = ["trace"] }
+tokio = { version = "1.35", features = ["full"] }
 
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-axum-prometheus = "0.4"
+axum-prometheus = "0.5"
 
 anyhow = "1"
 async-trait = "0.1"
