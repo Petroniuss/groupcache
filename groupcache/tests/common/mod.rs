@@ -4,7 +4,6 @@ use anyhow::anyhow;
 use anyhow::Result;
 use async_trait::async_trait;
 use groupcache::Groupcache;
-use groupcache::OptionsBuilder;
 use moka::future::CacheBuilder;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
@@ -110,12 +109,9 @@ pub async fn spawn_groupcache_instance(
 ) -> Result<TestGroupcache> {
     let listener = TcpListener::bind(addr).await.unwrap();
     let addr = listener.local_addr()?;
-    let groupcache = {
-        let loader = TestCacheLoader::new(instance_id);
-        let hot_cache = CacheBuilder::default().time_to_live(HOT_CACHE_TTL).build();
-        let options = OptionsBuilder::new().hot_cache(hot_cache).build();
-        Groupcache::<CachedValue>::new_with_options(addr.into(), Box::new(loader), options)
-    };
+    let groupcache = Groupcache::builder(addr.into(), TestCacheLoader::new(instance_id))
+        .hot_cache(CacheBuilder::default().time_to_live(HOT_CACHE_TTL).build())
+        .build();
 
     let server = groupcache.grpc_service();
     tokio::spawn(async move {
