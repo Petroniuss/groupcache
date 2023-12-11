@@ -5,10 +5,10 @@ use moka::future::Cache;
 use std::sync::Arc;
 use tonic::transport::Endpoint;
 
+/// Allows to build groupcache instance with customized caches, timeouts etc
 pub struct GroupcacheBuilder<Value: ValueBounds> {
     me: GroupcachePeer,
     loader: Box<dyn ValueLoader<Value = Value>>,
-
     options: Options<Value>,
 }
 
