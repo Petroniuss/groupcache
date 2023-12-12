@@ -7,7 +7,9 @@ use crate::GroupcachePeer;
 
 #[async_trait]
 pub trait ServiceDiscovery: Send {
-    async fn initialize(&mut self) -> Result<(), Box<dyn Error>>;
-    async fn instances(&self) -> Result<Vec<GroupcachePeer>, Box<dyn Error>>;
+    async fn initialize(&mut self) -> Result<(), Box<dyn Error + Send + Sync + 'static>>;
+    async fn instances(
+        &self,
+    ) -> Result<Vec<GroupcachePeer>, Box<dyn Error + Send + Sync + 'static>>;
     fn delay(&self) -> Duration;
 }

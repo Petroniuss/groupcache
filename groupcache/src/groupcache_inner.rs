@@ -15,6 +15,7 @@ use groupcache_pb::{GetRequest, RemoveRequest};
 use metrics::counter;
 use moka::future::Cache;
 use singleflight_async::SingleFlight;
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use tonic::transport::Endpoint;
@@ -37,16 +38,35 @@ struct Config {
 }
 
 async fn run_service_discovery<Value: ValueBounds>(
-    _cache: Arc<GroupcacheInner<Value>>,
+    cache: Arc<GroupcacheInner<Value>>,
     mut service_discovery: Box<dyn ServiceDiscovery>,
 ) {
     service_discovery.initialize().await.unwrap();
+    let mut current = HashSet::<GroupcachePeer>::default(); // TODO: remove
 
     loop {
-        tokio::time::sleep(service_discovery.delay()).await;
-        match service_discovery.instances().await {
+        let delay = service_discovery.delay();
+        tokio::time::sleep(delay).await;
+        let instances = service_discovery.instances();
+        match instances.await {
             Ok(instances) => {
-                println!("Instances: {}", instances.len());
+                println!("Instances: {:?}", instances);
+                let new = HashSet::from_iter(instances.to_owned());
+                for instance in current.iter() {
+                    if !new.contains(instance) {
+                        println!("Removing peer: {:?}", instance);
+                        cache.remove_peer(*instance).await.expect("");
+                    }
+                }
+
+                for instance in instances {
+                    if !current.contains(&instance) {
+                        println!("Adding peer: {:?}", instance);
+                        cache.add_peer(instance).await.expect("");
+                    }
+                }
+
+                current = new;
             }
             Err(error) => {
                 println!("Error: {}", error);
