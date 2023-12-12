@@ -1,8 +1,6 @@
-use anyhow::{anyhow, Result};
+use anyhow::anyhow;
 use async_trait::async_trait;
-use groupcache::Groupcache;
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
 use std::time::Duration;
 use tracing::info;
 
@@ -25,7 +23,7 @@ impl groupcache::ValueLoader for MockResourceLoader {
     async fn load(
         &self,
         key: &str,
-    ) -> std::result::Result<Self::Value, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    ) -> Result<Self::Value, Box<dyn std::error::Error + Send + Sync + 'static>> {
         use tokio::time::sleep;
         info!("Starting a long computation for {} .. about a 100ms.", key);
         sleep(Duration::from_millis(100)).await;
@@ -38,11 +36,4 @@ impl groupcache::ValueLoader for MockResourceLoader {
             })
         };
     }
-}
-
-pub async fn configure_groupcache(socket: SocketAddr) -> Result<Groupcache<CachedValue>> {
-    let loader = MockResourceLoader {};
-    let groupcache = Groupcache::builder(socket.into(), loader).build();
-
-    Ok(groupcache)
 }
