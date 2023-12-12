@@ -6,13 +6,15 @@ use kube::{Api, Client};
 use std::error::Error;
 use std::net::SocketAddr;
 
-pub struct Kubernetes {}
+pub struct Kubernetes {
+    api: Option<Api<Pod>>,
+}
 
 pub struct KubernetesBuilder {}
 
 impl KubernetesBuilder {
     pub fn build(self) -> Kubernetes {
-        Kubernetes {}
+        Kubernetes { api: None }
     }
 }
 
@@ -24,10 +26,15 @@ impl Kubernetes {
 
 #[async_trait]
 impl ServiceDiscovery for Kubernetes {
-    async fn instances(&self) -> Result<Vec<GroupcachePeer>, Box<dyn Error>> {
+    async fn initialize(&mut self) -> Result<(), Box<dyn Error>> {
         let client = Client::try_default().await?;
         let api: Api<Pod> = Api::default_namespaced(client);
+        self.api = Some(api);
+        Ok(())
+    }
 
+    async fn instances(&self) -> Result<Vec<GroupcachePeer>, Box<dyn Error>> {
+        let api = self.api.as_ref().unwrap();
         let pods_with_label_query = ListParams::default().labels("app=groupcache-powered-backend");
         Ok(api
             .list(&pods_with_label_query)
