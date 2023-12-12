@@ -74,10 +74,7 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
     /// Enable automatic service discovery.
     ///
     /// By default automatic service is disabled.
-    pub fn service_discovery(
-        mut self,
-        service_discovery: impl ServiceDiscovery + Sync + Send + 'static,
-    ) -> Self {
+    pub fn service_discovery(mut self, service_discovery: impl ServiceDiscovery + 'static) -> Self {
         self.options.service_discovery = Some(Box::new(service_discovery));
         self
     }
