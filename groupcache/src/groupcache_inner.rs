@@ -17,7 +17,6 @@ use moka::future::Cache;
 use singleflight_async::SingleFlight;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 use tonic::transport::Endpoint;
 use tonic::IntoRequest;
 
@@ -44,7 +43,7 @@ async fn run_service_discovery<Value: ValueBounds>(
     service_discovery.initialize().await.unwrap();
 
     loop {
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        tokio::time::sleep(service_discovery.delay()).await;
         match service_discovery.instances().await {
             Ok(instances) => {
                 println!("Instances: {}", instances.len());

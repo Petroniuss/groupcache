@@ -5,6 +5,7 @@ use kube::api::ListParams;
 use kube::{Api, Client};
 use std::error::Error;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 pub struct Kubernetes {
     api: Option<Api<Pod>>,
@@ -53,5 +54,9 @@ impl ServiceDiscovery for Kubernetes {
                 Some(GroupcachePeer::from_socket(addr))
             })
             .collect())
+    }
+
+    fn delay(&self) -> Duration {
+        Duration::from_secs(10)
     }
 }
