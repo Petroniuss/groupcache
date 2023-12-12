@@ -42,7 +42,7 @@ impl groupcache::ValueLoader for MockResourceLoader {
 
 pub async fn configure_groupcache(socket: SocketAddr) -> Result<Groupcache<CachedValue>> {
     let loader = MockResourceLoader {};
-    let groupcache = Groupcache::new(socket.into(), Box::new(loader));
+    let groupcache = Groupcache::builder(socket.into(), loader).build();
 
     Ok(groupcache)
 }

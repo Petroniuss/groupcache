@@ -13,7 +13,7 @@ async fn test_when_there_is_only_one_peer_it_should_handle_entire_key_space() ->
     let groupcache = {
         let loader = TestCacheLoader::new("1");
         let addr: SocketAddr = "127.0.0.1:8080".parse()?;
-        Groupcache::<CachedValue>::new(addr.into(), Box::new(loader))
+        Groupcache::<CachedValue>::builder(addr.into(), loader).build()
     };
 
     let key = "K-some-random-key-d2k";

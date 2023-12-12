@@ -2,7 +2,8 @@
 //!
 //! Entire functionality is exposed via [Groupcache] struct, which needs [ValueLoader] to be constructed.
 use crate::errors::GroupcacheError;
-use crate::{GroupcacheInner, Options};
+use crate::groupcache_builder::GroupcacheBuilder;
+use crate::GroupcacheInner;
 use async_trait::async_trait;
 use groupcache_pb::GroupcacheClient;
 use groupcache_pb::GroupcacheServer;
@@ -30,24 +31,17 @@ use tonic::transport::Channel;
 /// There is an example showing how to use kubernetes API server for service discovery with groupcache
 /// [See here](https://docs.rs/crate/rustdb/{version}/source/examples/kubernetes-service-discovery)
 #[derive(Clone)]
-pub struct Groupcache<Value: ValueBounds>(Arc<GroupcacheInner<Value>>);
+pub struct Groupcache<Value: ValueBounds>(pub(crate) Arc<GroupcacheInner<Value>>);
 
 impl<Value: ValueBounds> Groupcache<Value> {
     /// In order to construct [`Groupcache`] application needs to provide:
     /// - [`GroupcachePeer`] - necessary for routing
     /// - [`ValueLoader`] implementation
-    pub fn new(me: GroupcachePeer, loader: Box<dyn ValueLoader<Value = Value>>) -> Self {
-        Groupcache::new_with_options(me, loader, Options::default())
-    }
-
-    /// Allows to customize [`Groupcache`] via [`Options`].
-    pub fn new_with_options(
+    pub fn builder(
         me: GroupcachePeer,
-        loader: Box<dyn ValueLoader<Value = Value>>,
-        options: Options<Value>,
-    ) -> Self {
-        let groupcache = GroupcacheInner::new(me, loader, options);
-        Self(Arc::new(groupcache))
+        loader: impl ValueLoader<Value = Value> + 'static,
+    ) -> GroupcacheBuilder<Value> {
+        GroupcacheBuilder::new(me, Box::new(loader))
     }
 
     /// Provided a given `key`

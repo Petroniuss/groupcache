@@ -6,8 +6,8 @@ use crate::metrics::{
     METRIC_GET_TOTAL, METRIC_LOCAL_CACHE_HIT_TOTAL, METRIC_LOCAL_LOAD_ERROR_TOTAL,
     METRIC_LOCAL_LOAD_TOTAL, METRIC_REMOTE_LOAD_ERROR, METRIC_REMOTE_LOAD_TOTAL,
 };
+use crate::options::Options;
 use crate::routing::{GroupcachePeerWithClient, RoutingState};
-use crate::Options;
 use anyhow::{Context, Result};
 use groupcache_pb::GroupcacheClient;
 use groupcache_pb::{GetRequest, RemoveRequest};
