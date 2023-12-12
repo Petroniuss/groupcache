@@ -45,10 +45,8 @@ async fn run_service_discovery<Value: ValueBounds>(
     let mut current = HashSet::<GroupcachePeer>::default(); // TODO: remove
 
     loop {
-        let delay = service_discovery.delay();
-        tokio::time::sleep(delay).await;
-        let instances = service_discovery.instances();
-        match instances.await {
+        tokio::time::sleep(service_discovery.delay()).await;
+        match service_discovery.instances().await {
             Ok(instances) => {
                 println!("Instances: {:?}", instances);
                 let new = HashSet::from_iter(instances.to_owned());
