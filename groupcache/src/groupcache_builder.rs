@@ -1,8 +1,7 @@
 use crate::groupcache::ValueBounds;
 use crate::options::Options;
-use crate::{Groupcache, GroupcacheInner, GroupcachePeer, ValueLoader};
+use crate::{Groupcache, GroupcacheInner, GroupcachePeer, ServiceDiscovery, ValueLoader};
 use moka::future::Cache;
-use std::sync::Arc;
 use tonic::transport::Endpoint;
 
 /// Allows to build groupcache instance with customized caches, timeouts etc
@@ -72,11 +71,18 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
         self
     }
 
+    /// Enable automatic service discovery.
+    ///
+    /// By default automatic service is disabled.
+    pub fn service_discovery(
+        mut self,
+        service_discovery: impl ServiceDiscovery + Sync + Send + 'static,
+    ) -> Self {
+        self.options.service_discovery = Some(Box::new(service_discovery));
+        self
+    }
+
     pub fn build(self) -> Groupcache<Value> {
-        Groupcache(Arc::new(GroupcacheInner::new(
-            self.me,
-            self.loader,
-            self.options,
-        )))
+        Groupcache(GroupcacheInner::create(self.me, self.loader, self.options))
     }
 }

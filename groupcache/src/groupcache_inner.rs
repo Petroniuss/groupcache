@@ -8,6 +8,7 @@ use crate::metrics::{
 };
 use crate::options::Options;
 use crate::routing::{GroupcachePeerWithClient, RoutingState};
+use crate::ServiceDiscovery;
 use anyhow::{Context, Result};
 use groupcache_pb::GroupcacheClient;
 use groupcache_pb::{GetRequest, RemoveRequest};
@@ -16,6 +17,7 @@ use moka::future::Cache;
 use singleflight_async::SingleFlight;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use tonic::transport::Endpoint;
 use tonic::IntoRequest;
 
@@ -35,12 +37,23 @@ struct Config {
     grpc_endpoint_builder: Arc<Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>>,
 }
 
+async fn run_service_discovery<Value: ValueBounds>(
+    cache: Arc<GroupcacheInner<Value>>,
+    service_discovery: Arc<Box<dyn ServiceDiscovery + Send + Sync>>,
+) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        let instances = service_discovery.instances().await.expect("");
+        println!("Instances: {}", instances.len());
+    }
+}
+
 impl<Value: ValueBounds> GroupcacheInner<Value> {
-    pub(crate) fn new(
+    pub(crate) fn create(
         me: GroupcachePeer,
         loader: Box<dyn ValueLoader<Value = Value>>,
         options: Options<Value>,
-    ) -> Self {
+    ) -> Arc<Self> {
         let routing_state = Arc::new(RwLock::new(RoutingState::with_local_peer(me)));
 
         let main_cache = options.main_cache;
@@ -53,7 +66,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             grpc_endpoint_builder: Arc::new(options.grpc_endpoint_builder),
         };
 
-        Self {
+        let cache = Arc::new(Self {
             routing_state,
             single_flight_group,
             main_cache,
@@ -61,7 +74,16 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             loader,
             me,
             config,
+        });
+
+        if let Some(service_discovery) = options.service_discovery {
+            tokio::spawn(run_service_discovery(
+                cache.clone(),
+                Arc::new(service_discovery),
+            ));
         }
+
+        cache
     }
 
     pub(crate) async fn get(&self, key: &str) -> core::result::Result<Value, GroupcacheError> {
