@@ -39,8 +39,10 @@ struct Config {
 
 async fn run_service_discovery<Value: ValueBounds>(
     _cache: Arc<GroupcacheInner<Value>>,
-    service_discovery: Box<dyn ServiceDiscovery>,
+    mut service_discovery: Box<dyn ServiceDiscovery>,
 ) {
+    service_discovery.initialize().await.unwrap();
+
     loop {
         tokio::time::sleep(Duration::from_secs(10)).await;
         match service_discovery.instances().await {
