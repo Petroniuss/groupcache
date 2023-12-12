@@ -13,7 +13,7 @@ pub(crate) struct Options<Value: ValueBounds> {
     pub(crate) hot_cache: Cache<String, Value>,
     pub(crate) grpc_endpoint_builder: Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>,
     pub(crate) https: bool,
-    pub(crate) service_discovery: Option<Box<dyn ServiceDiscovery + Send + Sync + 'static>>,
+    pub(crate) service_discovery: Option<Box<dyn ServiceDiscovery>>,
 }
 
 impl<Value: ValueBounds> Default for Options<Value> {

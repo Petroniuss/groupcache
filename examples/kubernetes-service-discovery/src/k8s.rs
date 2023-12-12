@@ -1,9 +1,10 @@
-use std::net::SocketAddr;
 use async_trait::async_trait;
+use groupcache::{GroupcachePeer, ServiceDiscovery};
 use k8s_openapi::api::core::v1::Pod;
-use kube::{Api, Client};
 use kube::api::ListParams;
-use groupcache::{GroupcachePeer, ServiceDiscovery, ServiceDiscoveryError};
+use kube::{Api, Client};
+use std::error::Error;
+use std::net::SocketAddr;
 
 pub struct Kubernetes {}
 
@@ -23,8 +24,8 @@ impl Kubernetes {
 
 #[async_trait]
 impl ServiceDiscovery for Kubernetes {
-    async fn instances(&self) -> Result<Vec<GroupcachePeer>, ServiceDiscoveryError> {
-        let client = Client::try_default().await.unwrap();
+    async fn instances(&self) -> Result<Vec<GroupcachePeer>, Box<dyn Error>> {
+        let client = Client::try_default().await?;
         let api: Api<Pod> = Api::default_namespaced(client);
 
         let pods_with_label_query = ListParams::default().labels("app=groupcache-powered-backend");

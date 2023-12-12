@@ -1,10 +1,8 @@
 use crate::GroupcachePeer;
 use async_trait::async_trait;
+use std::error::Error;
 
 #[async_trait]
-pub trait ServiceDiscovery {
-    async fn instances(&self) -> Result<Vec<GroupcachePeer>, ServiceDiscoveryError>;
+pub trait ServiceDiscovery: Send {
+    async fn instances(&self) -> Result<Vec<GroupcachePeer>, Box<dyn Error>>;
 }
-
-#[derive(Debug)]
-pub enum ServiceDiscoveryError {}

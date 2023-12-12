@@ -38,13 +38,19 @@ struct Config {
 }
 
 async fn run_service_discovery<Value: ValueBounds>(
-    cache: Arc<GroupcacheInner<Value>>,
-    service_discovery: Arc<Box<dyn ServiceDiscovery + Send + Sync>>,
+    _cache: Arc<GroupcacheInner<Value>>,
+    service_discovery: Box<dyn ServiceDiscovery>,
 ) {
     loop {
         tokio::time::sleep(Duration::from_secs(10)).await;
-        let instances = service_discovery.instances().await.expect("");
-        println!("Instances: {}", instances.len());
+        match service_discovery.instances().await {
+            Ok(instances) => {
+                println!("Instances: {}", instances.len());
+            }
+            Err(error) => {
+                println!("Error: {}", error);
+            }
+        }
     }
 }
 
@@ -77,10 +83,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         });
 
         if let Some(service_discovery) = options.service_discovery {
-            tokio::spawn(run_service_discovery(
-                cache.clone(),
-                Arc::new(service_discovery),
-            ));
+            tokio::spawn(run_service_discovery(cache.clone(), service_discovery));
         }
 
         cache

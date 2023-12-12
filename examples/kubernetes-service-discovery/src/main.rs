@@ -3,6 +3,7 @@ mod cache;
 mod k8s;
 
 use crate::cache::CachedValue;
+use crate::k8s::Kubernetes;
 use anyhow::Context;
 use anyhow::Result;
 use axum::extract::{Path, State};
@@ -11,7 +12,7 @@ use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
-use groupcache::{Groupcache, ServiceDiscovery};
+use groupcache::Groupcache;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::env;
@@ -23,7 +24,6 @@ use tower_http::classify::{ServerErrorsAsFailures, SharedClassifier};
 use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tower_http::LatencyUnit;
 use tracing::{error, info, log, Level};
-use crate::k8s::Kubernetes;
 
 /// kubernetes-service-discovery example
 ///
@@ -105,7 +105,6 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
 
 #[derive(Serialize)]
 struct GetResponse {
