@@ -8,14 +8,12 @@ use crate::metrics::{
 };
 use crate::options::Options;
 use crate::routing::{GroupcachePeerWithClient, RoutingState};
-use crate::ServiceDiscovery;
 use anyhow::{Context, Result};
 use groupcache_pb::GroupcacheClient;
 use groupcache_pb::{GetRequest, RemoveRequest};
 use metrics::counter;
 use moka::future::Cache;
 use singleflight_async::SingleFlight;
-use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use tonic::transport::Endpoint;
@@ -37,48 +35,12 @@ struct Config {
     grpc_endpoint_builder: Arc<Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>>,
 }
 
-async fn run_service_discovery<Value: ValueBounds>(
-    cache: Arc<GroupcacheInner<Value>>,
-    mut service_discovery: Box<dyn ServiceDiscovery>,
-) {
-    service_discovery.initialize().await.unwrap();
-    let mut current = HashSet::<GroupcachePeer>::default(); // TODO: remove
-
-    loop {
-        tokio::time::sleep(service_discovery.delay()).await;
-        match service_discovery.instances().await {
-            Ok(instances) => {
-                println!("Instances: {:?}", instances);
-                let new = HashSet::from_iter(instances.to_owned());
-                for instance in current.iter() {
-                    if !new.contains(instance) {
-                        println!("Removing peer: {:?}", instance);
-                        cache.remove_peer(*instance).await.expect("");
-                    }
-                }
-
-                for instance in instances {
-                    if !current.contains(&instance) {
-                        println!("Adding peer: {:?}", instance);
-                        cache.add_peer(instance).await.expect("");
-                    }
-                }
-
-                current = new;
-            }
-            Err(error) => {
-                println!("Error: {}", error);
-            }
-        }
-    }
-}
-
 impl<Value: ValueBounds> GroupcacheInner<Value> {
-    pub(crate) fn create(
+    pub(crate) fn new(
         me: GroupcachePeer,
         loader: Box<dyn ValueLoader<Value = Value>>,
         options: Options<Value>,
-    ) -> Arc<Self> {
+    ) -> Self {
         let routing_state = Arc::new(RwLock::new(RoutingState::with_local_peer(me)));
 
         let main_cache = options.main_cache;
@@ -91,7 +53,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             grpc_endpoint_builder: Arc::new(options.grpc_endpoint_builder),
         };
 
-        let cache = Arc::new(Self {
+        Self {
             routing_state,
             single_flight_group,
             main_cache,
@@ -99,13 +61,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             loader,
             me,
             config,
-        });
-
-        if let Some(service_discovery) = options.service_discovery {
-            tokio::spawn(run_service_discovery(cache.clone(), service_discovery));
         }
-
-        cache
     }
 
     pub(crate) async fn get(&self, key: &str) -> core::result::Result<Value, GroupcacheError> {

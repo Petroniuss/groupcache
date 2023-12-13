@@ -1,7 +1,9 @@
 use crate::groupcache::ValueBounds;
 use crate::options::Options;
+use crate::service_discovery::run_service_discovery;
 use crate::{Groupcache, GroupcacheInner, GroupcachePeer, ServiceDiscovery, ValueLoader};
 use moka::future::Cache;
+use std::sync::Arc;
 use tonic::transport::Endpoint;
 
 /// Allows to build groupcache instance with customized caches, timeouts etc
@@ -79,7 +81,18 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
         self
     }
 
-    pub fn build(self) -> Groupcache<Value> {
-        Groupcache(GroupcacheInner::create(self.me, self.loader, self.options))
+    pub fn build(mut self) -> Groupcache<Value> {
+        let service_discovery = self.options.service_discovery.take();
+        let cache = Groupcache(Arc::new(GroupcacheInner::new(
+            self.me,
+            self.loader,
+            self.options,
+        )));
+
+        if let Some(service_discovery) = service_discovery {
+            tokio::spawn(run_service_discovery(cache.clone(), service_discovery));
+        }
+
+        cache
     }
 }
