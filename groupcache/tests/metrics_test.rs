@@ -2,38 +2,34 @@
 mod common;
 use anyhow::{Context, Result};
 use common::*;
-use metrics::{Counter, CounterFn, Gauge, Histogram, Key, KeyName, Recorder, SharedString, Unit};
+use metrics::{Counter, counter, CounterFn, Gauge, Histogram, Key, KeyName, Metadata, Recorder, SharedString, Unit};
 use pretty_assertions::assert_eq;
 use rstest::{fixture, rstest};
-use serial_test::serial as serial_test;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use tokio::runtime::{Builder, Handle, Runtime};
 
 #[fixture]
-#[once]
-pub fn mock_recorder() -> &'static MockRecorder {
-    let recorder_mock = &*Box::leak(Box::new(MockRecorder::new()));
-    metrics::set_recorder(recorder_mock)
-        .expect("setting metrics recorder should succeed as long as it's done once per process");
-    recorder_mock
+pub fn runtime() -> Runtime {
+    Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("should be able to stat a runtime")
 }
 
 #[fixture]
-pub fn clean_recorder(mock_recorder: &'static MockRecorder) -> &'static MockRecorder {
-    mock_recorder.clean();
-    return mock_recorder;
+pub fn recorder() -> MockRecorder {
+    MockRecorder::new()
 }
 
-#[fixture]
 pub async fn groupcache() -> TestGroupcache {
     single_instance()
         .await
         .expect("running single groupcache instance should succeed")
 }
 
-#[fixture]
 pub async fn groupcache_tuple() -> (TestGroupcache, TestGroupcache) {
     two_connected_instances()
         .await
@@ -43,93 +39,109 @@ pub async fn groupcache_tuple() -> (TestGroupcache, TestGroupcache) {
 #[rstest]
 #[case::get("groupcache_get_total")]
 #[case::local_load("groupcache_local_load_total")]
-#[tokio::test]
-#[serial_test]
-pub async fn metrics_on_fresh_local_load(
-    clean_recorder: &'static MockRecorder,
-    #[future(awt)] groupcache: TestGroupcache,
+pub fn metrics_on_fresh_local_load(
+    recorder: MockRecorder,
+    runtime: Runtime,
     #[case] metric_name: &str,
 ) -> Result<()> {
-    let _ = groupcache.get("foo").await?;
+    metrics::with_local_recorder(&recorder, || {
+        let _ = runtime.block_on(async move {
+            let groupcache = groupcache().await;
+            groupcache.get("foo").await
+        });
 
-    let counter_value = clean_recorder
-        .counter_value(metric_name)
-        .context(format!("metric '{}' should be set", metric_name))?;
+        let counter_value = recorder
+            .counter_value(metric_name)
+            .context(format!("metric '{}' should be set", metric_name)).unwrap();
 
-    assert_eq!(1, counter_value);
+        assert_eq!(1, counter_value);
+    });
+
     Ok(())
 }
+
 
 #[rstest]
 #[case::load_error("groupcache_get_total")]
 #[case::load_error("groupcache_local_load_errors")]
-#[tokio::test]
-#[serial_test]
-pub async fn metrics_on_load_failure(
-    clean_recorder: &'static MockRecorder,
-    #[future(awt)] groupcache: TestGroupcache,
+pub fn metrics_on_load_failure(
+    recorder: MockRecorder,
+    runtime: Runtime,
     #[case] metric_name: &str,
 ) -> Result<()> {
-    let res = groupcache.get("error").await;
-    assert!(res.is_err());
+    metrics::with_local_recorder(&recorder, || {
+        let _ = runtime.block_on(async move {
+            let groupcache = groupcache().await;
+            let res = groupcache.get("error").await;
+            assert!(res.is_err());
+        });
 
-    let counter_value = clean_recorder
-        .counter_value(metric_name)
-        .context(format!("metric '{}' should be set", metric_name))?;
+        let counter_value = recorder
+            .counter_value(metric_name)
+            .context(format!("metric '{}' should be set", metric_name))?;
 
-    assert_eq!(1, counter_value);
-    Ok(())
+        assert_eq!(1, counter_value);
+        Ok(())
+    })
 }
 
 #[rstest]
 #[case::get("groupcache_get_total", 2)]
 #[case::local_load("groupcache_local_load_total", 1)]
 #[case::cache_hit("groupcache_local_cache_hit_total", 1)]
-#[tokio::test]
-#[serial_test]
-pub async fn metrics_on_cached_local_load(
-    clean_recorder: &'static MockRecorder,
-    #[future(awt)] groupcache: TestGroupcache,
+pub fn metrics_on_cached_local_load(
+    recorder: MockRecorder,
+    runtime: Runtime,
     #[case] metric_name: &str,
     #[case] expected_count: u64,
 ) -> Result<()> {
-    let _ = groupcache.get("same-key").await?;
-    let _ = groupcache.get("same-key").await?;
+    metrics::with_local_recorder(&recorder, || {
+        let _ = runtime.block_on(async move {
+            let groupcache = groupcache().await;
+            let _ = groupcache.get("same-key").await.expect("should succeed");
+            let _ = groupcache.get("same-key").await.expect("should succeed");
+        });
 
-    let counter_value = clean_recorder
-        .counter_value(metric_name)
-        .context(format!("metric '{}' should be set", metric_name))?;
+        let counter_value = recorder
+            .counter_value(metric_name)
+            .context(format!("metric '{}' should be set", metric_name))?;
 
-    assert_eq!(expected_count, counter_value);
-    Ok(())
+        assert_eq!(expected_count, counter_value);
+        Ok(())
+    })
 }
 
 #[rstest]
 #[case::get("groupcache_get_total", 2)]
 #[case::get_server_reqs("groupcache_get_server_requests_total", 1)]
 #[case::remote_loads("groupcache_remote_load_total", 1)]
-#[tokio::test]
-#[serial_test]
-pub async fn metrics_on_remote_load_test(
-    clean_recorder: &'static MockRecorder,
-    #[future(awt)] groupcache_tuple: (TestGroupcache, TestGroupcache),
+pub fn metrics_on_remote_load_test(
+    recorder: MockRecorder,
+    runtime: Runtime,
     #[case] metric_name: &str,
     #[case] expected_count: u64,
 ) -> Result<()> {
-    let (instance_one, instance_two) = groupcache_tuple;
-    let key = key_owned_by_instance(instance_two.clone());
-    successful_get(&key, Some("2"), instance_one.clone()).await;
+    metrics::with_local_recorder(&recorder, || {
+        let _ = runtime.block_on(async move {
+            let groupcache = groupcache().await;
+            let (instance_one, instance_two) = groupcache_tuple().await;
+            let key = key_owned_by_instance(instance_two.clone());
+            successful_get(&key, Some("2"), instance_one.clone()).await;
+        });
 
-    let counter_value = clean_recorder
-        .counter_value(metric_name)
-        .context(format!("metric '{}' should be set", metric_name))?;
+        let counter_value = recorder
+            .counter_value(metric_name)
+            .context(format!("metric '{}' should be set", metric_name))?;
 
-    assert_eq!(
-        expected_count, counter_value,
-        "metric: {} was {}",
-        metric_name, counter_value
-    );
-    Ok(())
+        assert_eq!(
+            expected_count, counter_value,
+            "metric: {} was {}",
+            metric_name, counter_value
+        );
+
+
+        Ok(())
+    })
 }
 
 #[rstest]
@@ -137,30 +149,33 @@ pub async fn metrics_on_remote_load_test(
 #[case::get_server_reqs("groupcache_get_server_requests_total", 1)]
 #[case::remote_loads("groupcache_remote_load_total", 1)]
 #[case::remote_load_errors("groupcache_remote_load_errors", 1)]
-#[tokio::test]
-#[serial_test]
-pub async fn metrics_on_remote_load_failure(
-    clean_recorder: &'static MockRecorder,
-    #[future(awt)] groupcache_tuple: (TestGroupcache, TestGroupcache),
+pub fn metrics_on_remote_load_failure(
+    recorder: MockRecorder,
+    runtime: Runtime,
     #[case] metric_name: &str,
     #[case] expected_count: u64,
 ) -> Result<()> {
-    let (instance_one, instance_two) = groupcache_tuple;
-    let key = error_key_on_instance(instance_two.clone());
+    metrics::with_local_recorder(&recorder, || {
+        let _ = runtime.block_on(async move {
+            let (instance_one, instance_two) = groupcache_tuple().await;
+            let key = error_key_on_instance(instance_two.clone());
 
-    let res = instance_one.get(&key).await;
-    assert!(res.is_err(), "get should fail");
+            let res = instance_one.get(&key).await;
+            assert!(res.is_err(), "get should fail");
+        });
 
-    let counter_value = clean_recorder
-        .counter_value(metric_name)
-        .context(format!("metric '{}' should be set", metric_name))?;
+        let counter_value = recorder
+            .counter_value(metric_name)
+            .context(format!("metric '{}' should be set", metric_name))?;
 
-    assert_eq!(
-        expected_count, counter_value,
-        "metric: {} was {}",
-        metric_name, counter_value
-    );
-    Ok(())
+        assert_eq!(
+            expected_count, counter_value,
+            "metric: {} was {}",
+            metric_name, counter_value
+        );
+
+        Ok(())
+    })
 }
 
 pub struct MockRecorder {
@@ -220,7 +235,7 @@ impl Recorder for MockRecorder {
 
     fn describe_histogram(&self, _key: KeyName, _unit: Option<Unit>, _description: SharedString) {}
 
-    fn register_counter(&self, key: &Key) -> Counter {
+    fn register_counter(&self, key: &Key, metadata: &Metadata<'_>) -> Counter {
         match self
             .registered_counters
             .borrow_mut()
@@ -239,11 +254,11 @@ impl Recorder for MockRecorder {
         }
     }
 
-    fn register_gauge(&self, _key: &Key) -> Gauge {
-        Gauge::noop()
+    fn register_gauge(&self, key: &Key, metadata: &Metadata<'_>) -> Gauge {
+        todo!()
     }
 
-    fn register_histogram(&self, _key: &Key) -> Histogram {
-        Histogram::noop()
+    fn register_histogram(&self, key: &Key, metadata: &Metadata<'_>) -> Histogram {
+        todo!()
     }
 }

@@ -11,7 +11,7 @@ use tonic::{Request, Response, Status};
 #[async_trait]
 impl<Value: ValueBounds> Groupcache for GroupcacheInner<Value> {
     async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
-        counter!(METRIC_GET_SERVER_REQUESTS_TOTAL, 1);
+        counter!(METRIC_GET_SERVER_REQUESTS_TOTAL).increment(1);
 
         let payload = request.into_inner();
         match self.get(&payload.key).await {
