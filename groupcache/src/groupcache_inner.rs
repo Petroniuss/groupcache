@@ -237,6 +237,22 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         Ok(())
     }
 
+    pub(crate) async fn set_peers(&self, peers: Vec<GroupcachePeer>) -> Result<(), GroupcacheError> {
+        let new_peers: Vec<GroupcachePeer> = {
+            let read_lock = self.routing_state.read().unwrap();
+            peers.into_iter().filter(|peer| { read_lock.contains_peer(peer) }).collect()
+        };
+
+        if new_peers.len() == 0 {
+            return Ok(());
+        }
+
+        // let client = self.connect(peer).await?;
+        // let mut write_lock = self.routing_state.write().unwrap();
+        // write_lock.add_peer(peer, client);
+        Ok(())
+    }
+
     async fn connect(
         &self,
         peer: GroupcachePeer,

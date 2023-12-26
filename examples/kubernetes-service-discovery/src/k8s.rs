@@ -8,38 +8,36 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 pub struct Kubernetes {
-    api: Option<Api<Pod>>,
+    api: Api<Pod>,
 }
 
-pub struct KubernetesBuilder {}
+pub struct KubernetesBuilder {
+    client: Option<Client>
+}
 
 impl KubernetesBuilder {
     pub fn build(self) -> Kubernetes {
-        Kubernetes { api: None }
+        Kubernetes { api: Api::default_namespaced(self.client.unwrap()) }
+    }
+    pub fn client(mut self, client: Client) -> Self {
+        self.client = Some(client);
+        self
     }
 }
 
 impl Kubernetes {
     pub fn builder() -> KubernetesBuilder {
-        KubernetesBuilder {}
+        KubernetesBuilder { client: None }
     }
 }
 
 #[async_trait]
 impl ServiceDiscovery for Kubernetes {
-    async fn initialize(&mut self) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-        let client = Client::try_default().await?;
-        let api: Api<Pod> = Api::default_namespaced(client);
-        self.api = Some(api);
-        Ok(())
-    }
-
     async fn instances(
         &self,
     ) -> Result<Vec<GroupcachePeer>, Box<dyn Error + Send + Sync + 'static>> {
-        let api = self.api.as_ref().unwrap();
         let pods_with_label_query = ListParams::default().labels("app=groupcache-powered-backend");
-        Ok(api
+        Ok(self.api
             .list(&pods_with_label_query)
             .await
             .unwrap()

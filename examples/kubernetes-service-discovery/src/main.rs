@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::env;
 use std::net::SocketAddr;
+use kube::Client;
 use tower::make::Shared;
 use tower::steer::Steer;
 use tower::ServiceExt;
@@ -58,8 +59,10 @@ async fn main() -> Result<()> {
     // Groupcache instance, configured to respond to requests under `addr`
     // It doesn't by itself start a gRPC server, this is done later.
     let loader = cache::MockResourceLoader {};
+    let client = Client::try_default().await?;
+
     let groupcache = Groupcache::builder(addr.into(), loader)
-        .service_discovery(Kubernetes::builder().build())
+        .service_discovery(Kubernetes::builder().client(client).build())
         .build();
 
     // Example axum app with endpoint to retrieve value from groupcache.
