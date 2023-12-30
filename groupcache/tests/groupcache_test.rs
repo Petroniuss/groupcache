@@ -31,7 +31,7 @@ fn builder_api_test() {
     let loader = DummyLoader {};
     let me: SocketAddr = "127.0.0.1:8080".parse().unwrap();
 
-    let _options = Groupcache::builder(me.into(), loader)
+    let _groupcache = Groupcache::builder(me.into(), loader)
         .main_cache(main_cache)
         .hot_cache(hot_cache)
         .grpc_endpoint_builder(Box::new(|endpoint: Endpoint| {

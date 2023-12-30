@@ -247,6 +247,8 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             return Ok(());
         }
 
+        // todo: connect to peers
+
         // let client = self.connect(peer).await?;
         // let mut write_lock = self.routing_state.write().unwrap();
         // write_lock.add_peer(peer, client);

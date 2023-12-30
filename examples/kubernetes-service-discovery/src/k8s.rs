@@ -36,7 +36,8 @@ impl ServiceDiscovery for Kubernetes {
     async fn instances(
         &self,
     ) -> Result<Vec<GroupcachePeer>, Box<dyn Error + Send + Sync + 'static>> {
-        let pods_with_label_query = ListParams::default().labels("app=groupcache-powered-backend");
+        let pods_with_label_query = ListParams::default()
+           .labels("app=groupcache-powered-backend");
         Ok(self.api
             .list(&pods_with_label_query)
             .await
@@ -54,9 +55,5 @@ impl ServiceDiscovery for Kubernetes {
                 Some(GroupcachePeer::from_socket(addr))
             })
             .collect())
-    }
-
-    fn delay(&self) -> Duration {
-        Duration::from_secs(10)
     }
 }
