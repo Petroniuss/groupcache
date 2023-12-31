@@ -1,5 +1,6 @@
 //! groupcache module contains the core groupcache logic
 
+use crate::errors::InternalGroupcacheError::Anyhow;
 use crate::errors::{DedupedGroupcacheError, GroupcacheError, InternalGroupcacheError};
 use crate::groupcache::{GroupcachePeer, GroupcachePeerClient, ValueBounds, ValueLoader};
 use crate::metrics::{
@@ -17,6 +18,7 @@ use singleflight_async::SingleFlight;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
+use tokio::task::JoinSet;
 use tonic::transport::Endpoint;
 use tonic::IntoRequest;
 
@@ -231,52 +233,120 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             return Ok(());
         }
 
-        let client = self.connect(peer).await?;
+        let (_, client) = self.connect(peer).await?;
         let mut write_lock = self.routing_state.write().unwrap();
         write_lock.add_peer(peer, client);
 
         Ok(())
     }
 
+    // todo: this code could be refactored, but that's the general idea :)
     pub(crate) async fn set_peers(
         &self,
-        peers: HashSet<GroupcachePeer>,
+        updated_peers: HashSet<GroupcachePeer>,
     ) -> Result<(), GroupcacheError> {
-        let new_peers: Vec<GroupcachePeer> = {
+        let current_peers: HashSet<GroupcachePeer> = {
             let read_lock = self.routing_state.read().unwrap();
-            peers
-                .into_iter()
-                .filter(|peer| read_lock.contains_peer(peer))
-                .collect()
+            read_lock.peers()
         };
 
-        if new_peers.is_empty() {
+        // connect to newly discovered peers
+        let connection_results = {
+            let added_peers = updated_peers.difference(&current_peers);
+            let mut tasks = JoinSet::<
+                Result<(GroupcachePeer, GroupcachePeerClient), InternalGroupcacheError>,
+            >::new();
+            for added_peer in added_peers {
+                let moved_peer = *added_peer;
+                let https = self.config.https;
+                let grpc_endpoint_builder = self.config.grpc_endpoint_builder.clone();
+                tasks.spawn(async move {
+                    GroupcacheInner::<Value>::connect_static(
+                        moved_peer,
+                        https,
+                        grpc_endpoint_builder,
+                    )
+                    .await
+                });
+            }
+
+            let mut results = Vec::new();
+            while let Some(res) = tasks.join_next().await {
+                let conn_result = res
+                    .context("unexpected JoinError when awaiting peer connection")
+                    .map_err(Anyhow)?;
+
+                results.push(conn_result);
+            }
+
+            results
+        };
+
+        let removed_peers = current_peers.difference(&updated_peers).collect::<Vec<_>>();
+        let no_updates = removed_peers.is_empty() && connection_results.is_empty();
+        if no_updates {
             return Ok(());
         }
 
-        // todo: connect to peers
+        // update routing table
+        let errors = {
+            let mut write_lock = self.routing_state.write().unwrap();
 
-        // let client = self.connect(peer).await?;
-        // let mut write_lock = self.routing_state.write().unwrap();
-        // write_lock.add_peer(peer, client);
-        Ok(())
+            let mut connection_errors = Vec::new();
+            for result in connection_results {
+                match result {
+                    Ok((peer, client)) => {
+                        write_lock.add_peer(peer, client);
+                    }
+                    Err(e) => {
+                        connection_errors.push(e);
+                    }
+                }
+            }
+
+            for removed_peer in removed_peers {
+                write_lock.remove_peer(*removed_peer);
+            }
+
+            connection_errors
+        };
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            let connections_errors = InternalGroupcacheError::ConnectionErrors(errors);
+            Err(GroupcacheError::from(connections_errors))
+        }
     }
 
     async fn connect(
         &self,
         peer: GroupcachePeer,
-    ) -> Result<GroupcachePeerClient, InternalGroupcacheError> {
+    ) -> Result<(GroupcachePeer, GroupcachePeerClient), InternalGroupcacheError> {
+        GroupcacheInner::<Value>::connect_static(
+            peer,
+            self.config.https,
+            self.config.grpc_endpoint_builder.clone(),
+        )
+        .await
+    }
+
+    async fn connect_static(
+        peer: GroupcachePeer,
+        https: bool,
+        grpc_endpoint_builder: Arc<Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>>,
+    ) -> Result<(GroupcachePeer, GroupcachePeerClient), InternalGroupcacheError> {
         let socket = peer.socket;
-        let peer_addr = if self.config.https {
+        let peer_addr = if https {
             format!("https://{}", socket)
         } else {
             format!("http://{}", socket)
         };
 
         let endpoint: Endpoint = peer_addr.try_into()?;
-        let endpoint = self.config.grpc_endpoint_builder.as_ref()(endpoint);
+        let endpoint = grpc_endpoint_builder.as_ref()(endpoint);
         let client = GroupcacheClient::connect(endpoint).await?;
-        Ok(client)
+        Ok((peer, client))
     }
 
     pub(crate) async fn remove_peer(&self, peer: GroupcachePeer) -> Result<(), GroupcacheError> {

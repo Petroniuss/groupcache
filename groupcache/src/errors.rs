@@ -30,6 +30,9 @@ pub(crate) enum InternalGroupcacheError {
     #[error(transparent)]
     Connection(#[from] tonic::transport::Error),
 
+    #[error("Connection errors: {0:?}")]
+    ConnectionErrors(Vec<InternalGroupcacheError>),
+
     #[error(transparent)]
-    CatchAll(#[from] anyhow::Error),
+    Anyhow(#[from] anyhow::Error),
 }
