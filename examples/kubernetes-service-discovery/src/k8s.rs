@@ -3,21 +3,23 @@ use groupcache::{GroupcachePeer, ServiceDiscovery};
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::ListParams;
 use kube::{Api, Client};
+use std::collections::HashSet;
 use std::error::Error;
 use std::net::SocketAddr;
-use std::time::Duration;
 
 pub struct Kubernetes {
     api: Api<Pod>,
 }
 
 pub struct KubernetesBuilder {
-    client: Option<Client>
+    client: Option<Client>,
 }
 
 impl KubernetesBuilder {
     pub fn build(self) -> Kubernetes {
-        Kubernetes { api: Api::default_namespaced(self.client.unwrap()) }
+        Kubernetes {
+            api: Api::default_namespaced(self.client.unwrap()),
+        }
     }
     pub fn client(mut self, client: Client) -> Self {
         self.client = Some(client);
@@ -33,12 +35,12 @@ impl Kubernetes {
 
 #[async_trait]
 impl ServiceDiscovery for Kubernetes {
-    async fn instances(
+    async fn pull_instances(
         &self,
-    ) -> Result<Vec<GroupcachePeer>, Box<dyn Error + Send + Sync + 'static>> {
-        let pods_with_label_query = ListParams::default()
-           .labels("app=groupcache-powered-backend");
-        Ok(self.api
+    ) -> Result<HashSet<GroupcachePeer>, Box<dyn Error + Send + Sync + 'static>> {
+        let pods_with_label_query = ListParams::default().labels("app=groupcache-powered-backend");
+        Ok(self
+            .api
             .list(&pods_with_label_query)
             .await
             .unwrap()

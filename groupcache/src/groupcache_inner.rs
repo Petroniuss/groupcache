@@ -14,6 +14,7 @@ use groupcache_pb::{GetRequest, RemoveRequest};
 use metrics::counter;
 use moka::future::Cache;
 use singleflight_async::SingleFlight;
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use tonic::transport::Endpoint;
@@ -237,13 +238,19 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         Ok(())
     }
 
-    pub(crate) async fn set_peers(&self, peers: Vec<GroupcachePeer>) -> Result<(), GroupcacheError> {
+    pub(crate) async fn set_peers(
+        &self,
+        peers: HashSet<GroupcachePeer>,
+    ) -> Result<(), GroupcacheError> {
         let new_peers: Vec<GroupcachePeer> = {
             let read_lock = self.routing_state.read().unwrap();
-            peers.into_iter().filter(|peer| { read_lock.contains_peer(peer) }).collect()
+            peers
+                .into_iter()
+                .filter(|peer| read_lock.contains_peer(peer))
+                .collect()
         };
 
-        if new_peers.len() == 0 {
+        if new_peers.is_empty() {
             return Ok(());
         }
 

@@ -69,12 +69,6 @@ impl RoutingState {
         self.peers.remove(&peer);
     }
 
-    pub(crate) fn set_peers(&mut self, peers: Vec<GroupcachePeer>) {
-        for peer in self.peers {
-
-        }
-    }
-
     pub(crate) fn contains_peer(&self, peer: &GroupcachePeer) -> bool {
         self.peers.contains_key(peer)
     }
