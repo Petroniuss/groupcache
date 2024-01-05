@@ -17,7 +17,7 @@ use tonic::transport::Channel;
 ///
 /// It is an [`Arc`] wrapper around [`GroupcacheInner`] which implements the API,
 /// so that applications don't have to wrap groupcache inside [`Arc`] themselves
-/// in concurrent context which is target audience.
+/// in concurrent context which is the target audience.
 ///
 /// In order for groupcache peers to discover themselves application author needs to hook in some service discovery:
 /// - static IP addresses of hosts running groupcache
@@ -25,8 +25,10 @@ use tonic::transport::Channel;
 /// - [kubernetes API server](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/)
 /// - ..
 ///
-/// Integration of service discovery with groupcache can be done via:
+/// Integration of [`crate::ServiceDiscovery`] with groupcache is done via:
 /// - [`Groupcache::set_peers`] - preferred for pull-based service discovery,
+///
+/// There are also:
 /// - [`Groupcache::add_peer`] and [`Groupcache::remove_peer`] - preferred for push-based service discovery.
 ///
 /// There is an example showing how to use kubernetes API server for service discovery with groupcache

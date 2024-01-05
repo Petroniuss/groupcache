@@ -41,12 +41,11 @@ pub(crate) async fn run_service_discovery<Value: ValueBounds>(
         match service_discovery.pull_instances().await {
             Ok(instances) => {
                 if let Err(error) = cache.set_peers(instances).await {
-                    // todo: improve log message
-                    error!("Error: {}", error);
+                    error!("Error connecting to refreshed instances: {}", error);
                 };
             }
             Err(error) => {
-                error!("Error: {}", error);
+                error!("Error during when refreshing instances: {}", error);
             }
         }
     }
