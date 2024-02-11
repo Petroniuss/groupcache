@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-FROM rust:1.73.0 AS chef
+FROM rust:1.75.0 AS chef
 WORKDIR /usr/app
 RUN cargo install cargo-chef
 

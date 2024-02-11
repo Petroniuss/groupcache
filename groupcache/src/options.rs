@@ -1,3 +1,4 @@
+use crate::service_discovery::ServiceDiscovery;
 use crate::ValueBounds;
 use moka::future::Cache;
 use std::time::Duration;
@@ -12,6 +13,7 @@ pub(crate) struct Options<Value: ValueBounds> {
     pub(crate) hot_cache: Cache<String, Value>,
     pub(crate) grpc_endpoint_builder: Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>,
     pub(crate) https: bool,
+    pub(crate) service_discovery: Option<Box<dyn ServiceDiscovery>>,
 }
 
 impl<Value: ValueBounds> Default for Options<Value> {
@@ -31,6 +33,7 @@ impl<Value: ValueBounds> Default for Options<Value> {
             hot_cache,
             grpc_endpoint_builder,
             https: false,
+            service_discovery: None,
         }
     }
 }

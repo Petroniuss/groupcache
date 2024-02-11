@@ -1,7 +1,7 @@
 use crate::groupcache::{GroupcachePeer, GroupcachePeerClient};
 use anyhow::{Context, Result};
 use hashring::HashRing;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 
 static VNODES_PER_PEER: i32 = 40;
@@ -32,6 +32,10 @@ impl RoutingState {
             peers: HashMap::new(),
             ring,
         }
+    }
+
+    pub(crate) fn peers(&self) -> HashSet<GroupcachePeer> {
+        self.peers.keys().copied().collect()
     }
 
     pub(crate) fn lookup_peer(&self, key: &str) -> Result<GroupcachePeerWithClient> {

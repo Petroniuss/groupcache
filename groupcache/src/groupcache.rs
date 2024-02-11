@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use groupcache_pb::GroupcacheClient;
 use groupcache_pb::GroupcacheServer;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tonic::transport::Channel;
@@ -16,7 +17,7 @@ use tonic::transport::Channel;
 ///
 /// It is an [`Arc`] wrapper around [`GroupcacheInner`] which implements the API,
 /// so that applications don't have to wrap groupcache inside [`Arc`] themselves
-/// in concurrent context which is target audience.
+/// in concurrent context which is the target audience.
 ///
 /// In order for groupcache peers to discover themselves application author needs to hook in some service discovery:
 /// - static IP addresses of hosts running groupcache
@@ -24,12 +25,14 @@ use tonic::transport::Channel;
 /// - [kubernetes API server](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/)
 /// - ..
 ///
-/// Integration of service discovery with groupcache can be done via:
-/// - [`Groupcache::add_peer`]
-/// - [`Groupcache::remove_peer`]
+/// Integration of [`crate::ServiceDiscovery`] with groupcache is done via:
+/// - [`Groupcache::set_peers`] - preferred for pull-based service discovery,
+///
+/// There are also:
+/// - [`Groupcache::add_peer`] and [`Groupcache::remove_peer`] - preferred for push-based service discovery.
 ///
 /// There is an example showing how to use kubernetes API server for service discovery with groupcache
-/// [See here](https://docs.rs/crate/rustdb/{version}/source/examples/kubernetes-service-discovery)
+/// [See here](https://github.com/Petroniuss/groupcache/tree/main/examples/kubernetes-service-discovery)
 #[derive(Clone)]
 pub struct Groupcache<Value: ValueBounds>(pub(crate) Arc<GroupcacheInner<Value>>);
 
@@ -81,6 +84,33 @@ impl<Value: ValueBounds> Groupcache<Value> {
     ///   Note that this will likely increase number of RPCs over the network since all requests will have to go to the owner.
     pub async fn remove(&self, key: &str) -> Result<(), GroupcacheError> {
         self.0.remove(key).await
+    }
+
+    /// service-discovery:
+    ///
+    /// Once in a while groupcache backend should refresh view of groupcache nodes
+    /// to make sure that groupcache routes traffic evenly to all healthy nodes.
+    ///
+    /// This method can be used to notify groupcache about all peers in the cluster.
+    /// Groupcache will figure out:
+    /// - which are new and - will try to open a connection to these peers
+    /// - which it already knew about - will keep connection open as is.
+    /// - which it knew about but are now missing - will disconnect with such peers
+    ///
+    /// Instead of using this method directly in a loop,
+    /// applications can implement [`crate::ServiceDiscovery`]
+    /// and only provide implementation fetching state of the cluster.
+    ///
+    /// If it isn't possible to connect to some [`GroupcachePeer`]s
+    /// this method will return an error with all the peers it failed to connect to
+    /// and won't update routing table with these peers.
+    /// It will however update its routing table accordingly with peers that it successfully connected with.
+    ///
+    /// Note that [`Groupcache::set_peers`] isn't broadcasted to other peers,
+    /// and each groupcache peer needs to update its routing table via the same call.
+    /// In other words this only updates local routing table, not routing table of all nodes in the cluster.
+    pub async fn set_peers(&self, peers: HashSet<GroupcachePeer>) -> Result<(), GroupcacheError> {
+        self.0.set_peers(peers).await
     }
 
     /// service-discovery:

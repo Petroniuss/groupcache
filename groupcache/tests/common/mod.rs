@@ -146,7 +146,21 @@ pub async fn success_or_transport_err(key: &str, groupcache: TestGroupcache) {
 #[derive(Default)]
 pub struct GetAssertions {
     pub expected_instance_id: Option<String>,
+    pub unexpected_instance_id: Option<String>,
     pub expected_load_count: Option<i32>,
+}
+
+pub async fn successful_get_not_from_instance(
+    key: &str,
+    unexpected_instance_id: &str,
+    groupcache: TestGroupcache,
+) {
+    let opts = GetAssertions {
+        unexpected_instance_id: Some(unexpected_instance_id.to_string()),
+        ..GetAssertions::default()
+    };
+
+    successful_get_opts(key, groupcache, opts).await;
 }
 
 pub async fn successful_get(

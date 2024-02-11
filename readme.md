@@ -48,5 +48,5 @@ In a nutshell, a groupcache lookup of `Get("foo")` looks like:
  - There is one example showing how to run groupcache alongside a simple axum server deployed on k8s, see [examples/kubernetes-service-discovery](https://github.com/Petroniuss/groupcache/tree/main/examples/kubernetes-service-discovery).
 
 ## Documentation
-See <https://docs.rs/groupcache> and <https://docs.rs/groupcache/struct.Groupcache.html>
+See <https://docs.rs/groupcache> and <https://docs.rs/groupcache/latest/groupcache/struct.Groupcache.html>
 
