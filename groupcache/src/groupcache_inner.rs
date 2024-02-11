@@ -252,12 +252,12 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
 
         // connect to newly discovered peers
         let connection_results = {
-            let added_peers = updated_peers.difference(&current_peers);
+            let peers_to_connect = updated_peers.difference(&current_peers);
             let mut tasks = JoinSet::<
                 Result<(GroupcachePeer, GroupcachePeerClient), InternalGroupcacheError>,
             >::new();
-            for added_peer in added_peers {
-                let moved_peer = *added_peer;
+            for new_peer in peers_to_connect {
+                let moved_peer = *new_peer;
                 let https = self.config.https;
                 let grpc_endpoint_builder = self.config.grpc_endpoint_builder.clone();
                 tasks.spawn(async move {
@@ -270,7 +270,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
                 });
             }
 
-            let mut results = Vec::new();
+            let mut results = Vec::with_capacity(tasks.len());
             while let Some(res) = tasks.join_next().await {
                 let conn_result = res
                     .context("unexpected JoinError when awaiting peer connection")
@@ -282,8 +282,8 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             results
         };
 
-        let removed_peers = current_peers.difference(&updated_peers).collect::<Vec<_>>();
-        let no_updates = removed_peers.is_empty() && connection_results.is_empty();
+        let peers_to_remove = current_peers.difference(&updated_peers).collect::<Vec<_>>();
+        let no_updates = peers_to_remove.is_empty() && connection_results.is_empty();
         if no_updates {
             return Ok(());
         }
@@ -304,7 +304,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
                 }
             }
 
-            for removed_peer in removed_peers {
+            for removed_peer in peers_to_remove {
                 write_lock.remove_peer(*removed_peer);
             }
 

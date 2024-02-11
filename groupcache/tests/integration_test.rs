@@ -4,8 +4,11 @@ use anyhow::Result;
 use common::*;
 use groupcache::{Groupcache, GroupcachePeer};
 use pretty_assertions::assert_eq;
+use std::collections::HashSet;
 
 use std::net::SocketAddr;
+use std::ops::Sub;
+use std::str::FromStr;
 use tokio::time;
 
 #[tokio::test]
@@ -30,6 +33,60 @@ async fn test_when_there_is_only_one_peer_it_should_handle_entire_key_space() ->
         "Loading error: 'Something bad happened during loading :/'",
         err.to_string()
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_set_peers_updates_routing_table() -> Result<()> {
+    let peers = spawn_instances(5).await?;
+
+    let (me, others) = peers.split_first().unwrap();
+    let peers = others
+        .iter()
+        .map(|e| e.addr().into())
+        .collect::<HashSet<GroupcachePeer>>();
+
+    me.set_peers(peers.clone()).await?;
+    for i in 1..5 {
+        let peer = others[i - 1].clone();
+        let key = key_owned_by_instance(peer);
+        let peer_index = &*i.to_string();
+        successful_get(&key, Some(peer_index), me.clone()).await;
+    }
+
+    let tbr: HashSet<GroupcachePeer> = vec![others[3].addr().into()].into_iter().collect();
+    let subset = peers.sub(&tbr);
+    me.set_peers(subset.clone()).await?;
+
+    let key = key_owned_by_instance(others[3].clone());
+    successful_get_not_from_instance(&key, "4", me.clone()).await;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_healthy_peers_added_despite_one_unhealthy() -> Result<()> {
+    let peers = spawn_instances(5).await?;
+
+    let (me, others) = peers.split_first().unwrap();
+    let mut peers = others
+        .iter()
+        .map(|e| e.addr().into())
+        .collect::<HashSet<GroupcachePeer>>();
+
+    peers.insert(SocketAddr::from_str("127.0.0.1:8080")?.into());
+    let result = me.set_peers(peers.clone()).await;
+    if result.is_ok() {
+        panic!("Expected failure to set peers with unreachable address");
+    }
+
+    for i in 1..5 {
+        let peer = others[i - 1].clone();
+        let key = key_owned_by_instance(peer);
+        let peer_index = &*i.to_string();
+        successful_get(&key, Some(peer_index), me.clone()).await;
+    }
 
     Ok(())
 }
@@ -141,6 +198,7 @@ async fn when_kv_is_loaded_it_should_be_cached_by_the_owner() -> Result<()> {
         GetAssertions {
             expected_instance_id: Some("2".into()),
             expected_load_count: Some(1),
+            ..GetAssertions::default()
         },
     )
     .await;
@@ -151,6 +209,7 @@ async fn when_kv_is_loaded_it_should_be_cached_by_the_owner() -> Result<()> {
         GetAssertions {
             expected_instance_id: Some("2".into()),
             expected_load_count: Some(1),
+            ..GetAssertions::default()
         },
     )
     .await;
@@ -169,6 +228,7 @@ async fn when_kv_is_loaded_it_should_be_cached_in_hot_cache() -> Result<()> {
         GetAssertions {
             expected_instance_id: Some("2".into()),
             expected_load_count: Some(1),
+            ..GetAssertions::default()
         },
     )
     .await;
@@ -181,6 +241,7 @@ async fn when_kv_is_loaded_it_should_be_cached_in_hot_cache() -> Result<()> {
         GetAssertions {
             expected_instance_id: Some("2".into()),
             expected_load_count: Some(1),
+            ..GetAssertions::default()
         },
     )
     .await;
@@ -199,6 +260,7 @@ async fn when_kv_is_saved_in_hot_cache_it_should_expire_according_to_ttl() -> Re
         GetAssertions {
             expected_instance_id: Some("2".into()),
             expected_load_count: Some(1),
+            ..GetAssertions::default()
         },
     )
     .await;
@@ -212,6 +274,7 @@ async fn when_kv_is_saved_in_hot_cache_it_should_expire_according_to_ttl() -> Re
         GetAssertions {
             expected_instance_id: Some("2".into()),
             expected_load_count: Some(2),
+            ..GetAssertions::default()
         },
     )
     .await;
@@ -230,6 +293,7 @@ async fn when_key_is_removed_then_it_should_be_removed_from_owner() -> Result<()
         GetAssertions {
             expected_instance_id: Some("2".into()),
             expected_load_count: Some(1),
+            ..GetAssertions::default()
         },
     )
     .await;
@@ -242,6 +306,7 @@ async fn when_key_is_removed_then_it_should_be_removed_from_owner() -> Result<()
         GetAssertions {
             expected_instance_id: Some("2".into()),
             expected_load_count: Some(2),
+            ..GetAssertions::default()
         },
     )
     .await;
