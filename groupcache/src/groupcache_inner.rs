@@ -240,7 +240,6 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         Ok(())
     }
 
-    // todo: this code could be refactored, but that's the general idea :)
     pub(crate) async fn set_peers(
         &self,
         updated_peers: HashSet<GroupcachePeer>,
@@ -250,73 +249,86 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             read_lock.peers()
         };
 
-        // connect to newly discovered peers
-        let connection_results = {
-            let peers_to_connect = updated_peers.difference(&current_peers);
-            let mut tasks = JoinSet::<
-                Result<(GroupcachePeer, GroupcachePeerClient), InternalGroupcacheError>,
-            >::new();
-            for new_peer in peers_to_connect {
-                let moved_peer = *new_peer;
-                let https = self.config.https;
-                let grpc_endpoint_builder = self.config.grpc_endpoint_builder.clone();
-                tasks.spawn(async move {
-                    GroupcacheInner::<Value>::connect_static(
-                        moved_peer,
-                        https,
-                        grpc_endpoint_builder,
-                    )
-                    .await
-                });
-            }
-
-            let mut results = Vec::with_capacity(tasks.len());
-            while let Some(res) = tasks.join_next().await {
-                let conn_result = res
-                    .context("unexpected JoinError when awaiting peer connection")
-                    .map_err(Anyhow)?;
-
-                results.push(conn_result);
-            }
-
-            results
-        };
-
+        let new_connections_results = self
+            .connect_to_new_peers(&updated_peers, &current_peers)
+            .await?;
         let peers_to_remove = current_peers.difference(&updated_peers).collect::<Vec<_>>();
-        let no_updates = peers_to_remove.is_empty() && connection_results.is_empty();
+
+        let no_updates = peers_to_remove.is_empty() && new_connections_results.is_empty();
         if no_updates {
             return Ok(());
         }
 
-        // update routing table
-        let errors = {
-            let mut write_lock = self.routing_state.write().unwrap();
+        let conn_errors = self.update_routing_table(new_connections_results, peers_to_remove);
+        conn_errors.is_empty().then(|| Ok(())).unwrap_or_else(|| {
+            Err(GroupcacheError::from(
+                InternalGroupcacheError::ConnectionErrors(conn_errors),
+            ))
+        })
+    }
 
-            let mut connection_errors = Vec::new();
-            for result in connection_results {
-                match result {
-                    Ok((peer, client)) => {
-                        write_lock.add_peer(peer, client);
-                    }
-                    Err(e) => {
-                        connection_errors.push(e);
-                    }
+    /// Updates routing table by adding new successful connections and removing old peers
+    fn update_routing_table(
+        &self,
+        connection_results: Vec<
+            Result<(GroupcachePeer, GroupcachePeerClient), InternalGroupcacheError>,
+        >,
+        peers_to_remove: Vec<&GroupcachePeer>,
+    ) -> Vec<InternalGroupcacheError> {
+        let mut write_lock = self.routing_state.write().unwrap();
+
+        let mut connection_errors = Vec::new();
+        for result in connection_results {
+            match result {
+                Ok((peer, client)) => {
+                    write_lock.add_peer(peer, client);
+                }
+                Err(e) => {
+                    connection_errors.push(e);
                 }
             }
-
-            for removed_peer in peers_to_remove {
-                write_lock.remove_peer(*removed_peer);
-            }
-
-            connection_errors
-        };
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            let connections_errors = InternalGroupcacheError::ConnectionErrors(errors);
-            Err(GroupcacheError::from(connections_errors))
         }
+
+        for removed_peer in peers_to_remove {
+            write_lock.remove_peer(*removed_peer);
+        }
+
+        connection_errors
+    }
+
+    /// Connects to new peers that were not previously connected in parallel.
+    async fn connect_to_new_peers(
+        &self,
+        updated_peers: &HashSet<GroupcachePeer>,
+        current_peers: &HashSet<GroupcachePeer>,
+    ) -> Result<
+        Vec<Result<(GroupcachePeer, GroupcachePeerClient), InternalGroupcacheError>>,
+        GroupcacheError,
+    > {
+        let peers_to_connect = updated_peers.difference(current_peers);
+        let mut connection_task = JoinSet::<
+            Result<(GroupcachePeer, GroupcachePeerClient), InternalGroupcacheError>,
+        >::new();
+        for new_peer in peers_to_connect {
+            let moved_peer = *new_peer;
+            let https = self.config.https;
+            let grpc_endpoint_builder = self.config.grpc_endpoint_builder.clone();
+            connection_task.spawn(async move {
+                GroupcacheInner::<Value>::connect_static(moved_peer, https, grpc_endpoint_builder)
+                    .await
+            });
+        }
+
+        let mut results = Vec::with_capacity(connection_task.len());
+        while let Some(res) = connection_task.join_next().await {
+            let conn_result = res
+                .context("unexpected JoinError when awaiting peer connection")
+                .map_err(Anyhow)?;
+
+            results.push(conn_result);
+        }
+
+        Ok(results)
     }
 
     async fn connect(
