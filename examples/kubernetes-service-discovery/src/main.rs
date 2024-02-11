@@ -18,8 +18,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::env;
-use std::net::SocketAddr;
+use std::net::{SocketAddr};
 use std::time::Duration;
+use tokio::net::TcpListener;
+use tonic::body::BoxBody;
+use tonic::codegen::Body;
 use tower::make::Shared;
 use tower::steer::Steer;
 use tower::ServiceExt;
@@ -75,15 +78,19 @@ async fn main() -> Result<()> {
         .route("/*fallback", any(handler_404))
         .layer(prometheus_layer)
         .layer(trace())
-        .boxed_clone();
+        .as_service()
+        .boxed();
+
 
     // Groupcache gRPC service, used for cross-peer communication if there are multiple peers in the cluster.
     let grpc_groupcache = tonic::transport::Server::builder()
         .add_service(groupcache.grpc_service())
         .into_service()
-        .map_response(|r| r.map(axum::body::boxed))
+        // todo: in order to bump to the latest axum: https://github.com/tokio-rs/axum/releases tonic needs to be bumped first
+        // in order to map om tonic body which is `http_body` we need to tonic to be on version 1.0 of axum so that it uses http 1.0
+        .map_response(|r: Response<BoxBody>| r)
         .map_err::<_, Infallible>(|_| panic!("unreachable - make the compiler happy"))
-        .boxed_clone();
+        .boxed();
 
     // Create a service that can respond to Web and gRPC depending on content type header.
     // This is needed because groupcache itself communicates with its peers over gRPC.
@@ -106,8 +113,8 @@ async fn main() -> Result<()> {
 
     info!("Listening on addr: {}", addr);
     let bind_addr = format!("0.0.0.0:{}", pod_port).parse()?;
-    axum::Server::bind(&bind_addr)
-        .serve(Shared::new(http_grpc))
+    let listener = TcpListener::bind(&bind_addr).await?;
+    axum::serve(listener, Shared::new(http_grpc))
         .await
         .context("Failed to start axum server")?;
 
