@@ -15,4 +15,4 @@ repository = "https://github.com/Petroniuss/groupcache"
 prost = "0.12"
 tonic = "0.10"
 anyhow = "1"
-tonic-build = { version= "0.10", features = ["prost"] }
+tonic-build = { version= "0.11", features = ["prost"] }
