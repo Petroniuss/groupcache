@@ -2,14 +2,16 @@
 mod common;
 use anyhow::{Context, Result};
 use common::*;
-use metrics::{Counter, counter, CounterFn, Gauge, Histogram, Key, KeyName, Metadata, Recorder, SharedString, Unit};
+use metrics::{
+    Counter, CounterFn, Gauge, Histogram, Key, KeyName, Metadata, Recorder, SharedString, Unit,
+};
 use pretty_assertions::assert_eq;
 use rstest::{fixture, rstest};
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::runtime::{Builder, Handle, Runtime};
+use tokio::runtime::{Builder, Runtime};
 
 #[fixture]
 pub fn runtime() -> Runtime {
@@ -52,14 +54,14 @@ pub fn metrics_on_fresh_local_load(
 
         let counter_value = recorder
             .counter_value(metric_name)
-            .context(format!("metric '{}' should be set", metric_name)).unwrap();
+            .context(format!("metric '{}' should be set", metric_name))
+            .unwrap();
 
         assert_eq!(1, counter_value);
     });
 
     Ok(())
 }
-
 
 #[rstest]
 #[case::load_error("groupcache_get_total")]
@@ -70,7 +72,7 @@ pub fn metrics_on_load_failure(
     #[case] metric_name: &str,
 ) -> Result<()> {
     metrics::with_local_recorder(&recorder, || {
-        let _ = runtime.block_on(async move {
+        runtime.block_on(async move {
             let groupcache = groupcache().await;
             let res = groupcache.get("error").await;
             assert!(res.is_err());
@@ -96,7 +98,7 @@ pub fn metrics_on_cached_local_load(
     #[case] expected_count: u64,
 ) -> Result<()> {
     metrics::with_local_recorder(&recorder, || {
-        let _ = runtime.block_on(async move {
+        runtime.block_on(async move {
             let groupcache = groupcache().await;
             let _ = groupcache.get("same-key").await.expect("should succeed");
             let _ = groupcache.get("same-key").await.expect("should succeed");
@@ -122,8 +124,8 @@ pub fn metrics_on_remote_load_test(
     #[case] expected_count: u64,
 ) -> Result<()> {
     metrics::with_local_recorder(&recorder, || {
-        let _ = runtime.block_on(async move {
-            let groupcache = groupcache().await;
+        runtime.block_on(async move {
+            let _groupcache = groupcache().await;
             let (instance_one, instance_two) = groupcache_tuple().await;
             let key = key_owned_by_instance(instance_two.clone());
             successful_get(&key, Some("2"), instance_one.clone()).await;
@@ -138,7 +140,6 @@ pub fn metrics_on_remote_load_test(
             "metric: {} was {}",
             metric_name, counter_value
         );
-
 
         Ok(())
     })
@@ -156,7 +157,7 @@ pub fn metrics_on_remote_load_failure(
     #[case] expected_count: u64,
 ) -> Result<()> {
     metrics::with_local_recorder(&recorder, || {
-        let _ = runtime.block_on(async move {
+        runtime.block_on(async move {
             let (instance_one, instance_two) = groupcache_tuple().await;
             let key = error_key_on_instance(instance_two.clone());
 
@@ -196,11 +197,6 @@ impl MockRecorder {
             *guard
         });
     }
-
-    fn clean(&self) {
-        let mut counters = self.registered_counters.borrow_mut();
-        counters.drain();
-    }
 }
 
 #[derive(Clone)]
@@ -235,7 +231,7 @@ impl Recorder for MockRecorder {
 
     fn describe_histogram(&self, _key: KeyName, _unit: Option<Unit>, _description: SharedString) {}
 
-    fn register_counter(&self, key: &Key, metadata: &Metadata<'_>) -> Counter {
+    fn register_counter(&self, key: &Key, _metadata: &Metadata<'_>) -> Counter {
         match self
             .registered_counters
             .borrow_mut()
@@ -254,11 +250,11 @@ impl Recorder for MockRecorder {
         }
     }
 
-    fn register_gauge(&self, key: &Key, metadata: &Metadata<'_>) -> Gauge {
+    fn register_gauge(&self, _key: &Key, _metadata: &Metadata<'_>) -> Gauge {
         todo!()
     }
 
-    fn register_histogram(&self, key: &Key, metadata: &Metadata<'_>) -> Histogram {
+    fn register_histogram(&self, _key: &Key, _metadata: &Metadata<'_>) -> Histogram {
         todo!()
     }
 }
