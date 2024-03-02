@@ -14,10 +14,14 @@ groupcache is a distributed caching and cache-filling library, intended as a rep
 - Does not implement groups (which makes me wonder whether `groupcache` name still makes sense).
   - if such functionality is needed, it can be implemented on top of this library by having different implementations of `ValueLoader` depending on key prefix.
   - In this case however all metrics would be aggregated together, and it wouldn't be possible to customize cache per each group. Possibly something to think about in future versions.
-- Slightly different API for service discovery:
-  - API allows to add a peer, remove a peer compared to adding all peers at once (and thus invalidating previously added peers) in original implementation.
-- Still does not implement CAS, Increment/Decrement but supports cache invalidation.
-  - Care must be taken to handle stale values from `hot_cache`, see documentation for `Options`.
+- Built-in mechanisms for service discovery:
+  - [`pull-based via ServiceDiscovery trait`](https://docs.rs/groupcache/latest/groupcache/struct.ServiceDiscovery.html)
+  - API for push-based: 
+    - [`add a peer`](https://docs.rs/groupcache/latest/groupcache/struct.Groupcache.html#method.add_peer), 
+    - [`remove a peer`](https://docs.rs/groupcache/latest/groupcache/struct.Groupcache.html#method.remove_peer),
+    - [`set peers`](https://docs.rs/groupcache/latest/groupcache/struct.Groupcache.html#method.set_peers) all at once.
+- Supports cache invalidation:
+  - Care must be taken to handle stale values from `hot_cache`, see documentation for [`Options`](https://docs.rs/groupcache/latest/groupcache/struct.OptionsBuilder.html).
 
 ## Comparison to memcached (from original repository)
 
@@ -45,7 +49,9 @@ In a nutshell, a groupcache lookup of `Get("foo")` looks like:
 - Amongst all the peers in my set of N, am I the owner of the key `"foo"`? (e.g. does it consistent hash to 5?) If so, load it. If other callers come in, via the same process or via RPC requests from peers, they block waiting for the load to finish and get the same answer. If not, RPC to the peer that's the owner and get the answer. If the RPC fails, just load it locally (still with local dup suppression).
 
 ## Examples
- - There is one example showing how to run groupcache alongside a simple axum server deployed on k8s, see [examples/kubernetes-service-discovery](https://github.com/Petroniuss/groupcache/tree/main/examples/kubernetes-service-discovery).
+ - [`simple`](https://github.com/Petroniuss/groupcache/tree/main/examples/simple/main.rs) - shows how groupcache deduplicates concurrent requests.
+ - [`simple-multiple-instances`](https://github.com/Petroniuss/groupcache/tree/main/examples/simple-multiple-instances/main.rs) - shows how groupcache connects with multiple instances.
+ - [`kubernetes-service-discovery`](https://github.com/Petroniuss/groupcache/tree/main/examples/kubernetes-service-discovery) - shows how to run groupcache alongside a simple axum server deployed on k8s. Service discovery is handled by integration with kubernetes API server.
 
 ## Documentation
 See <https://docs.rs/groupcache> and <https://docs.rs/groupcache/latest/groupcache/struct.Groupcache.html>
