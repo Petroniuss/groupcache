@@ -23,7 +23,7 @@ use tonic::transport::Channel;
 /// - static IP addresses of hosts running groupcache
 /// - [consul](https://www.consul.io/)
 /// - [kubernetes API server](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/)
-/// - ..
+/// - ...
 ///
 /// Integration of [`crate::ServiceDiscovery`] with groupcache is done via:
 /// - [`Groupcache::set_peers`] - preferred for pull-based service discovery,
@@ -31,8 +31,8 @@ use tonic::transport::Channel;
 /// There are also:
 /// - [`Groupcache::add_peer`] and [`Groupcache::remove_peer`] - preferred for push-based service discovery.
 ///
-/// There is an example showing how to use kubernetes API server for service discovery with groupcache
-/// [See here](https://github.com/Petroniuss/groupcache/tree/main/examples/kubernetes-service-discovery)
+/// There is an example showing how to use kubernetes API server for service discovery with groupcache -
+/// [see here](https://github.com/Petroniuss/groupcache/tree/main/examples/kubernetes-service-discovery).
 #[derive(Clone)]
 pub struct Groupcache<Value: ValueBounds>(pub(crate) Arc<GroupcacheInner<Value>>);
 

@@ -32,7 +32,7 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
     /// forming hash ring and this peer stores values in main_cache.
     ///
     /// By default,
-    /// [`moka`] cache is used and this setter allows to customize this cache (eviction policy, size etc)
+    /// [`moka`] cache is used and this setter allows to customize this cache (eviction policy, size etc.)
     pub fn main_cache(mut self, main_cache: Cache<String, Value>) -> Self {
         self.options.main_cache = main_cache;
         self
@@ -44,7 +44,7 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
     /// enough to replicate to this node, even though it's not the owner.
     /// This however may lead to inconsistencies when expiring values (see [`Groupcache::remove`]).
     ///
-    /// By default hot_cache stores up to 10k items and expires after 30s.
+    /// By default, hot_cache stores up to 10k items and expires after 30s.
     /// Depending on use_case you may either disable hot_cache or tweak time_to_live.
     pub fn hot_cache(mut self, hot_cache: Cache<String, Value>) -> Self {
         self.options.hot_cache = hot_cache;
@@ -56,7 +56,7 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
     /// Note that this requires you to configure server running [`Groupcache::grpc_service`] to handle TLS.
     /// Look into tonic/axum documentation how to do so.
     ///
-    /// By default http is used.
+    /// By default, http is used.
     pub fn https(mut self) -> Self {
         self.options.https = true;
         self
@@ -75,7 +75,7 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
 
     /// Enable automatic pull-based service discovery via [`ServiceDiscovery`]
     ///
-    /// By default automatic service is disabled, useful when:
+    /// By default, automatic service is disabled, useful when:
     ///     - deployed on kubernetes (see examples)
     ///     - registered in consul etc
     pub fn service_discovery(mut self, service_discovery: impl ServiceDiscovery + 'static) -> Self {
