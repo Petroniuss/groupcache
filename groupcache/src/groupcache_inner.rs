@@ -76,14 +76,14 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
     }
 
     async fn get_internal(&self, key: &str) -> Result<Value, InternalGroupcacheError> {
-        counter!(METRIC_GET_TOTAL, 1);
+        counter!(METRIC_GET_TOTAL).increment(1);
         if let Some(value) = self.main_cache.get(key).await {
-            counter!(METRIC_LOCAL_CACHE_HIT_TOTAL, 1);
+            counter!(METRIC_LOCAL_CACHE_HIT_TOTAL).increment(1);
             return Ok(value);
         }
 
         if let Some(value) = self.hot_cache.get(key).await {
-            counter!(METRIC_LOCAL_CACHE_HIT_TOTAL, 1);
+            counter!(METRIC_LOCAL_CACHE_HIT_TOTAL).increment(1);
             return Ok(value);
         }
 
@@ -139,12 +139,12 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
     }
 
     async fn load_locally_instrumented(&self, key: &str) -> Result<Value, InternalGroupcacheError> {
-        counter!(METRIC_LOCAL_LOAD_TOTAL, 1);
+        counter!(METRIC_LOCAL_LOAD_TOTAL).increment(1);
         self.loader
             .load(key)
             .await
             .map_err(|e| {
-                counter!(METRIC_LOCAL_LOAD_ERROR_TOTAL, 1);
+                counter!(METRIC_LOCAL_LOAD_ERROR_TOTAL).increment(1);
                 e
             })
             .map_err(InternalGroupcacheError::LocalLoader)
@@ -155,9 +155,9 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         key: &str,
         client: &mut GroupcachePeerClient,
     ) -> Result<Value, InternalGroupcacheError> {
-        counter!(METRIC_REMOTE_LOAD_TOTAL, 1);
+        counter!(METRIC_REMOTE_LOAD_TOTAL).increment(1);
         self.load_remotely(key, client).await.map_err(|e| {
-            counter!(METRIC_REMOTE_LOAD_ERROR, 1);
+            counter!(METRIC_REMOTE_LOAD_ERROR).increment(1);
             e
         })
     }
