@@ -18,8 +18,10 @@ async fn main() -> Result<()> {
     // since all requests will be served by this instance
     let addr: SocketAddr = format!("{}:{}", "127.0.0.1", "8080").parse()?;
 
-    // we crate groupcache with only a single peer - this process
+    // need to tell groupcache how to load values
     let loader = ComputeProtectedValue;
+
+    // we crate groupcache with only a single peer - this process
     let groupcache = Groupcache::builder(addr.into(), loader).build();
 
     // we make 3 concurrent requests for hot key

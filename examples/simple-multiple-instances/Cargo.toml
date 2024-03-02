@@ -1,5 +1,5 @@
 [package]
-name = "simple"
+name = "simple-multiple-instances"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -7,7 +7,10 @@ publish = false
 [dependencies]
 groupcache = { path = "../../groupcache" }
 
+tonic = "0.10"
 tokio = { version = "1.34", features = ["full"] }
+tower-http = { version = "0.4", features = ["trace"] }
+
 serde = { version = "1", features = ["derive", "rc"] }
 
 tracing = "0.1"

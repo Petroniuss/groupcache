@@ -4,7 +4,8 @@ members= [
     "groupcache",
     "groupcache-pb",
     "examples/kubernetes-service-discovery",
-    "examples/simple"
+    "examples/simple",
+    "examples/simple-multiple-instances"
 ]
 
 

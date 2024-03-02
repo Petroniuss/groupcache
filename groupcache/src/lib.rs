@@ -15,3 +15,6 @@ pub use groupcache_builder::GroupcacheBuilder;
 pub use groupcache_inner::GroupcacheInner;
 pub use groupcache_pb::GroupcacheServer;
 pub use service_discovery::ServiceDiscovery;
+
+/// we expose [`moka`](https://crates.io/crates/moka) since it's used in the public api of the library.
+pub use moka;
