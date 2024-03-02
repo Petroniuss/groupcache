@@ -49,8 +49,8 @@ In a nutshell, a groupcache lookup of `Get("foo")` looks like:
 - Amongst all the peers in my set of N, am I the owner of the key `"foo"`? (e.g. does it consistent hash to 5?) If so, load it. If other callers come in, via the same process or via RPC requests from peers, they block waiting for the load to finish and get the same answer. If not, RPC to the peer that's the owner and get the answer. If the RPC fails, just load it locally (still with local dup suppression).
 
 ## Examples
- - [`simple`](https://github.com/Petroniuss/groupcache/tree/main/examples/simple) - shows how groupcache deduplicates concurrent requests.
- - [`simple-multiple-instances`](https://github.com/Petroniuss/groupcache/tree/main/examples/simple-multiple-instances) - shows how groupcache connects with multiple instances.
+ - [`simple`](https://github.com/Petroniuss/groupcache/tree/main/examples/simple/main.rs) - shows how groupcache deduplicates concurrent requests.
+ - [`simple-multiple-instances`](https://github.com/Petroniuss/groupcache/tree/main/examples/simple-multiple-instances/main.rs) - shows how groupcache connects with multiple instances.
  - [`kubernetes-service-discovery`](https://github.com/Petroniuss/groupcache/tree/main/examples/kubernetes-service-discovery) - shows how to run groupcache alongside a simple axum server deployed on k8s. Service discovery is handled by integration with kubernetes API server.
 
 ## Documentation
