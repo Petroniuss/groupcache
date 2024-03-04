@@ -17,7 +17,7 @@ repository = "https://github.com/Petroniuss/groupcache"
 
 [dependencies]
 groupcache-pb = { path = "../groupcache-pb", version = "0.1.0" }
-tonic = "0.10.2"
+tonic = "0.11.0"
 hashring = "0.3.3"
 anyhow = "1.0"
 thiserror = "1.0"
