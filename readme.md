@@ -15,13 +15,13 @@ groupcache is a distributed caching and cache-filling library, intended as a rep
   - if such functionality is needed, it can be implemented on top of this library by having different implementations of `ValueLoader` depending on key prefix.
   - In this case however all metrics would be aggregated together, and it wouldn't be possible to customize cache per each group. Possibly something to think about in future versions.
 - Built-in mechanisms for service discovery:
-  - [`pull-based via ServiceDiscovery trait`](https://docs.rs/groupcache/latest/groupcache/struct.ServiceDiscovery.html)
+  - [`pull-based via ServiceDiscovery trait`](https://docs.rs/groupcache/latest/groupcache/trait.ServiceDiscovery.html)
   - API for push-based: 
     - [`add a peer`](https://docs.rs/groupcache/latest/groupcache/struct.Groupcache.html#method.add_peer), 
     - [`remove a peer`](https://docs.rs/groupcache/latest/groupcache/struct.Groupcache.html#method.remove_peer),
     - [`set peers`](https://docs.rs/groupcache/latest/groupcache/struct.Groupcache.html#method.set_peers) all at once.
 - Supports cache invalidation:
-  - Care must be taken to handle stale values from `hot_cache`, see documentation for [`Options`](https://docs.rs/groupcache/latest/groupcache/struct.OptionsBuilder.html).
+  - Care must be taken to handle stale values from `hot_cache`, see documentation for [`GroupcacheBuilder`](https://docs.rs/groupcache/latest/groupcache/struct.GroupcacheBuilder.html).
 
 ## Comparison to memcached (from original repository)
 
