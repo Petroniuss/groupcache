@@ -8,7 +8,7 @@ publish = false
 # This pulls version from main branch so that docker build works (docker was confused by paths)
 groupcache = { git = "https://github.com/Petroniuss/groupcache.git" }
 tonic = "0.10"
-axum = "0.6"
+axum = "0.7"
 
 tower = { version = "0.4", features = ["steer"] }
 tower-http = { version = "0.4", features = ["trace"] }
