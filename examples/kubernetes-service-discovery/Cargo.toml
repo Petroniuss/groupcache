@@ -6,12 +6,13 @@ publish = false
 
 [dependencies]
 # This pulls version from main branch so that docker build works (docker was confused by paths)
-groupcache = { git = "https://github.com/Petroniuss/groupcache.git" }
-tonic = "0.10"
-axum = "0.6"
+#groupcache = { git = "https://github.com/Petroniuss/groupcache.git" }
+groupcache = { path = "../../groupcache" }
+tonic = "0.12.3"
+axum = "0.7.7"
 
-tower = { version = "0.4", features = ["steer"] }
-tower-http = { version = "0.4", features = ["trace"] }
+tower = { version = "0.5.1", features = ["steer"] }
+tower-http = { version = "0.6.1", features = ["trace"] }
 tokio = { version = "1.34", features = ["full"] }
 
 serde = { version = "1", features = ["derive", "rc"] }
@@ -19,10 +20,10 @@ serde_json = "1"
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-axum-prometheus = "0.4"
+axum-prometheus = "0.7.0"
 
 anyhow = "1"
 async-trait = "0.1"
 
-kube = { version = "0.87.1", features = ["runtime", "derive"] }
-k8s-openapi = { version = "0.20.0", features = ["latest"] }
+kube = { version = "0.96.0", features = ["runtime", "derive"] }
+k8s-openapi = { version = "0.23.0", features = ["latest"] }

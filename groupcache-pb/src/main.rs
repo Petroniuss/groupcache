@@ -12,6 +12,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tonic_build::configure()
         .out_dir("src/")
-        .compile(&["protos/groupcache.proto"], &["protos/"])?;
+        .compile_protos(&["protos/groupcache.proto"], &["protos/"])?;
     Ok(())
 }

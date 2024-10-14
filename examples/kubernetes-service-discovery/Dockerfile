@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-FROM rust:1.75.0 AS chef
+FROM rust:1.81.0 AS chef
 WORKDIR /usr/app
 RUN cargo install cargo-chef
 
@@ -35,7 +35,7 @@ RUN --mount=type=cache,target=~/.cargo \
     cargo install --locked --offline --frozen --path .
 
 # final slim image
-FROM frolvlad/alpine-glibc:alpine-3.17
+FROM debian:bookworm-slim AS runtime
 WORKDIR /usr/local/bin
 
 COPY --from=release /usr/local/cargo/bin/kubernetes-service-discovery .
