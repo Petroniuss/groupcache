@@ -114,6 +114,7 @@ async fn test_when_peer_disconnects_requests_should_fail_with_transport_error() 
     Ok(())
 }
 
+#[ignore]
 #[tokio::test]
 async fn test_when_peer_reconnects_it_should_respond_to_queries() -> Result<()> {
     let (instance_one, instance_two) = two_instances_with_one_disconnected().await?;

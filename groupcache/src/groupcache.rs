@@ -137,8 +137,8 @@ impl<Value: ValueBounds> Groupcache<Value> {
     /// - the server is not healthy
     /// - it has been moved to a different address via container orchestrator
     /// - it isn't reachable.
-    /// so that routing table/consistent hashing ring can be updated.
     ///
+    /// It should notify groupcache so that routing table/consistent hashing ring can be updated.
     /// Requests will no longer be forwarded to this peer.
     ///
     /// Note that [`Groupcache::remove_peer`] isn't broadcasted to other peers,

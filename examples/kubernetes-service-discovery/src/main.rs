@@ -7,20 +7,17 @@ use crate::k8s::Kubernetes;
 use anyhow::Context;
 use anyhow::Result;
 use axum::extract::{Path, State};
-use axum::http::header::CONTENT_TYPE;
-use axum::http::{Request, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
 use groupcache::Groupcache;
 use kube::Client;
 use serde::{Deserialize, Serialize};
-use std::convert::Infallible;
 use std::env;
 use std::net::SocketAddr;
-use tower::make::Shared;
-use tower::steer::Steer;
-use tower::ServiceExt;
+use tokio::net::TcpListener;
+use tonic::service::Routes;
 use tower_http::classify::{ServerErrorsAsFailures, SharedClassifier};
 use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tower_http::LatencyUnit;
@@ -61,6 +58,7 @@ async fn main() -> Result<()> {
     let loader = cache::MockResourceLoader {};
     let client = Client::try_default().await?;
 
+    // Configuring groupcache to use Kubernetes API server for peer auto-discovery.
     let groupcache = Groupcache::builder(addr.into(), loader)
         .service_discovery(Kubernetes::builder().client(client).build())
         .build();
@@ -74,35 +72,20 @@ async fn main() -> Result<()> {
         .route("/metrics", get(|| async move { metric_handle.render() }))
         .route("/*fallback", any(handler_404))
         .layer(prometheus_layer)
-        .layer(trace())
-        .boxed_clone();
+        .layer(trace());
 
     // Groupcache gRPC service, used for cross-peer communication if there are multiple peers in the cluster.
-    let grpc_groupcache = tonic::transport::Server::builder()
-        .add_service(groupcache.grpc_service())
-        .into_service()
-        .map_response(|r| r.map(axum::body::boxed))
-        .map_err::<_, Infallible>(|_| panic!("unreachable - make the compiler happy"))
-        .boxed_clone();
+    let grpc_service = groupcache.grpc_service();
+    let grpc_router = Routes::new(grpc_service).into_axum_router();
 
-    // Create a service that can respond to Web and gRPC depending on content type header.
-    // This is needed because groupcache itself communicates with its peers over gRPC.
-    // Alternatively, grpc server could be run on a separate port from the application.
-    let http_grpc = Steer::new(
-        vec![axum_app, grpc_groupcache],
-        |req: &Request<_>, _svcs: &[_]| {
-            let content_type = req.headers().get(CONTENT_TYPE).map(|v| v.as_bytes());
-            usize::from(
-                content_type == Some(b"application/grpc")
-                    || content_type == Some(b"application/grpc+proto"),
-            )
-        },
-    );
+    // Merging both axum rest endpoints and grpc into single router
+    let router = axum_app.merge(grpc_router);
 
     info!("Listening on addr: {}", addr);
-    let bind_addr = format!("0.0.0.0:{}", pod_port).parse()?;
-    axum::Server::bind(&bind_addr)
-        .serve(Shared::new(http_grpc))
+    let bind_addr: SocketAddr = format!("0.0.0.0:{}", pod_port).parse()?;
+    let listener = TcpListener::bind(bind_addr).await?;
+
+    axum::serve(listener, router)
         .await
         .context("Failed to start axum server")?;
 
