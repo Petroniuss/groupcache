@@ -1,6 +1,6 @@
 [package]
 name = "groupcache-pb"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Patryk Wojtyczek"]
 categories = ["caching", "web-programming", "concurrency", "asynchronous"]
@@ -12,7 +12,10 @@ readme = "../readme.md"
 repository = "https://github.com/Petroniuss/groupcache"
 
 [dependencies]
-prost = "0.13.3"
-tonic = "0.12.3"
-anyhow = "1"
-tonic-build = { version= "0.12.3", features = ["prost"] }
+prost = "0.14.1"
+tonic = "0.14.2"
+tonic-prost = "0.14.2"
+tonic-prost-build = { version = "0.14.2" }
+
+[build-dependencies]
+tonic-prost-build = "*"
