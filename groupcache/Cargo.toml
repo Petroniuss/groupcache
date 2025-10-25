@@ -29,7 +29,7 @@ async-trait = "0.1.74"
 singleflight-async = "0.2.0"
 moka = { version = "0.12.1", features = ["future"] }
 log = "0.4.20"
-metrics = "0.22.0"
+metrics = "0.24.0"
 
 [dev-dependencies]
 cargo-husky = { workspace = true }
