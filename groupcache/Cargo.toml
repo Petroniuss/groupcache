@@ -1,6 +1,6 @@
 [package]
 name = "groupcache"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Patryk Wojtyczek"]
 edition = "2021"
 categories = ["caching", "web-programming", "concurrency", "asynchronous"]
@@ -16,7 +16,7 @@ readme = "readme.md"
 repository = "https://github.com/Petroniuss/groupcache"
 
 [dependencies]
-groupcache-pb = { path = "../groupcache-pb", version = "0.2.0" }
+groupcache-pb = { path = "../groupcache-pb", version = "0.3.0" }
 tonic = "0.14.2"
 hashring = "0.3.3"
 anyhow = "1.0"
