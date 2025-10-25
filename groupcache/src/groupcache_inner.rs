@@ -25,7 +25,7 @@ use tonic::IntoRequest;
 /// Core implementation of groupcache API.
 pub struct GroupcacheInner<Value: ValueBounds> {
     routing_state: Arc<RwLock<RoutingState>>,
-    single_flight_group: SingleFlight<Result<Value, DedupedGroupcacheError>>,
+    single_flight_group: SingleFlight<String, Result<Value, DedupedGroupcacheError>>,
     main_cache: Cache<String, Value>,
     hot_cache: Cache<String, Value>,
     loader: Box<dyn ValueLoader<Value = Value>>,
@@ -102,7 +102,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         peer: GroupcachePeerWithClient,
     ) -> Result<Value, InternalGroupcacheError> {
         self.single_flight_group
-            .work(key, || async {
+            .work(key.to_owned(), || async {
                 self.get_deduped(key, peer)
                     .await
                     .map_err(|e| DedupedGroupcacheError(Arc::new(e)))
