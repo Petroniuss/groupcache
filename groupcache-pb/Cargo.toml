@@ -18,4 +18,4 @@ tonic-prost = "0.14.2"
 tonic-prost-build = { version = "0.14.2" }
 
 [build-dependencies]
-tonic-prost-build = "*"
+tonic-prost-build = { version = "0.14.2" }
