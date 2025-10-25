@@ -25,7 +25,7 @@ use tonic::IntoRequest;
 /// Core implementation of groupcache API.
 pub struct GroupcacheInner<Value: ValueBounds> {
     routing_state: Arc<RwLock<RoutingState>>,
-    single_flight_group: SingleFlight<Result<Value, DedupedGroupcacheError>>,
+    single_flight_group: SingleFlight<String, Result<Value, DedupedGroupcacheError>>,
     main_cache: Cache<String, Value>,
     hot_cache: Cache<String, Value>,
     loader: Box<dyn ValueLoader<Value = Value>>,
@@ -102,7 +102,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         peer: GroupcachePeerWithClient,
     ) -> Result<Value, InternalGroupcacheError> {
         self.single_flight_group
-            .work(key, || async {
+            .work(key.to_owned(), || async {
                 self.get_deduped(key, peer)
                     .await
                     .map_err(|e| DedupedGroupcacheError(Arc::new(e)))
@@ -143,9 +143,8 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         self.loader
             .load(key)
             .await
-            .map_err(|e| {
+            .inspect_err(|_| {
                 counter!(METRIC_LOCAL_LOAD_ERROR_TOTAL).increment(1);
-                e
             })
             .map_err(InternalGroupcacheError::LocalLoader)
     }
@@ -156,10 +155,9 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         client: &mut GroupcachePeerClient,
     ) -> Result<Value, InternalGroupcacheError> {
         counter!(METRIC_REMOTE_LOAD_TOTAL).increment(1);
-        self.load_remotely(key, client).await.map_err(|e| {
-            counter!(METRIC_REMOTE_LOAD_ERROR).increment(1);
-            e
-        })
+        self.load_remotely(key, client)
+            .await
+            .inspect_err(|_| counter!(METRIC_REMOTE_LOAD_ERROR).increment(1))
     }
 
     async fn load_remotely(

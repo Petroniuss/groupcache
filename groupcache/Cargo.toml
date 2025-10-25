@@ -1,6 +1,6 @@
 [package]
 name = "groupcache"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Patryk Wojtyczek"]
 edition = "2021"
 categories = ["caching", "web-programming", "concurrency", "asynchronous"]
@@ -16,24 +16,24 @@ readme = "readme.md"
 repository = "https://github.com/Petroniuss/groupcache"
 
 [dependencies]
-groupcache-pb = { path = "../groupcache-pb", version = "0.1.0" }
-tonic = "0.12.3"
+groupcache-pb = { path = "../groupcache-pb", version = "0.3.0" }
+tonic = "0.14.2"
 hashring = "0.3.3"
 anyhow = "1.0"
 thiserror = "2.0"
-axum = "0.7.7"
+axum = "0.8.0"
 tokio = { version = "1.34" , features = ["rt"]}
 serde = { version = "1.0", features = ["derive"] }
 rmp-serde = "1.1"
 async-trait = "0.1.74"
-singleflight-async = "0.1.1"
+singleflight-async = "0.2.0"
 moka = { version = "0.12.1", features = ["future"] }
 log = "0.4.20"
-metrics = "0.22.0"
+metrics = "0.24.0"
 
 [dev-dependencies]
 cargo-husky = { workspace = true }
 pretty_assertions = "1.4.0"
 tokio-stream = { version = "0.1.14", features = ["net"] }
 tokio = { version = "1.34", features = ["time", "test-util", "rt", "macros"] }
-rstest = "0.18.2"
+rstest = "0.26.1"
