@@ -1,4 +1,9 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // skip codegen if there hasn't been any updates.
+    if true {
+        return Ok(());
+    }
+
     let current_dir = std::env::current_dir()?;
     if !current_dir.ends_with("groupcache-pb") {
         return Err(format!(
