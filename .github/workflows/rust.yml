@@ -13,7 +13,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: cargo generate-lockfile
       if: hashFiles('Cargo.lock') == ''
       run: cargo generate-lockfile
@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     name: ubuntu / stable / coverage
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
         with:
