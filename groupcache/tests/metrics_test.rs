@@ -192,10 +192,10 @@ impl MockRecorder {
 
     fn counter_value(&self, key: &str) -> Option<u64> {
         let counters = self.registered_counters.borrow();
-        return counters.get(key).map(|c| {
+        counters.get(key).map(|c| {
             let guard = c.count.lock().unwrap();
             *guard
-        });
+        })
     }
 }
 

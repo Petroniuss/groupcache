@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
     let loader = ComputeProtectedValue;
 
     // we crate groupcache with only a single peer - this process
-    let groupcache = Groupcache::builder(addr.into(), loader).build();
+    let groupcache = Groupcache::builder(addr.into(), loader, groupcache::CancellationToken::new()).build();
 
     // we make 3 concurrent requests for hot key
     let key = "some-hot-requested-key";

@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 # This pulls version from main branch so that docker build works (docker was confused by paths)
 #groupcache = { git = "https://github.com/Petroniuss/groupcache.git" }
-groupcache = { path = "../../groupcache" }
+groupcache = { path = "../../groupcache", package = "groupcache-ng", features = ["kubernetes"] }
 tonic = "0.14.2"
 axum = "0.8.0"
 
@@ -25,5 +25,5 @@ axum-prometheus = "0.9.0"
 anyhow = "1"
 async-trait = "0.1"
 
-kube = { version = "2.0.1", features = ["runtime", "derive"] }
-k8s-openapi = { version = "0.26.0", features = ["latest"] }
+# kube and k8s-openapi come through groupcache's "kubernetes" feature
+kube = { version = "3", features = ["runtime"] }

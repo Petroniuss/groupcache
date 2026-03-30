@@ -3,10 +3,12 @@
 use anyhow::anyhow;
 use anyhow::Result;
 use async_trait::async_trait;
-use groupcache::Groupcache;
+use groupcache::{Groupcache, GroupcachePeer, ServiceDiscovery};
 use moka::future::CacheBuilder;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::error::Error;
 use std::future::{pending, Future};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -18,6 +20,11 @@ use tonic::transport::Server;
 
 pub static OS_ALLOCATED_PORT_ADDR: &str = "127.0.0.1:0";
 pub static HOT_CACHE_TTL: Duration = Duration::from_millis(100);
+
+/// Small delay to allow invalidation events to propagate over gRPC streams.
+/// This is NOT a TTL wait -- streams deliver in sub-millisecond, but we need
+/// to yield to the tokio runtime for the watcher task to process the event.
+pub static INVALIDATION_PROPAGATION_DELAY: Duration = Duration::from_millis(50);
 
 pub fn key_owned_by_instance(instance: TestGroupcache) -> String {
     format!("{}_0", instance.addr())
@@ -102,6 +109,82 @@ pub async fn spawn_groupcache(instance_id: &str) -> Result<TestGroupcache> {
     spawn_groupcache_instance(instance_id, OS_ALLOCATED_PORT_ADDR, pending()).await
 }
 
+/// Spawn a groupcache instance with a ServiceDiscovery implementation attached.
+pub async fn spawn_groupcache_with_service_discovery(
+    instance_id: &str,
+    sd: impl ServiceDiscovery + 'static,
+) -> Result<TestGroupcache> {
+    let listener = TcpListener::bind(OS_ALLOCATED_PORT_ADDR).await.unwrap();
+    let addr = listener.local_addr()?;
+    let groupcache = Groupcache::builder(addr.into(), TestCacheLoader::new(instance_id), groupcache::CancellationToken::new())
+        .hot_cache(CacheBuilder::default().time_to_live(HOT_CACHE_TTL).build())
+        .enable_invalidation_streaming()
+        .service_discovery(sd)
+        .build();
+
+    let server = groupcache.grpc_service();
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(server)
+            .serve_with_incoming_shutdown(TcpListenerStream::new(listener), pending::<()>())
+            .await
+            .unwrap();
+    });
+
+    Ok(groupcache)
+}
+
+/// A test implementation of ServiceDiscovery that returns a configurable set of peers.
+pub struct TestServiceDiscovery {
+    pub peers: Arc<RwLock<HashSet<GroupcachePeer>>>,
+    pub poll_interval: Duration,
+    pub error_on_next: Arc<RwLock<bool>>,
+}
+
+impl TestServiceDiscovery {
+    pub fn new(peers: HashSet<GroupcachePeer>, poll_interval: Duration) -> Self {
+        Self {
+            peers: Arc::new(RwLock::new(peers)),
+            poll_interval,
+            error_on_next: Arc::new(RwLock::new(false)),
+        }
+    }
+}
+
+#[async_trait]
+impl ServiceDiscovery for TestServiceDiscovery {
+    async fn pull_instances(
+        &self,
+    ) -> std::result::Result<HashSet<GroupcachePeer>, Box<dyn Error + Send + Sync + 'static>> {
+        let should_error = { *self.error_on_next.read().unwrap() };
+        if should_error {
+            return Err("Simulated service discovery error".into());
+        }
+        let peers = self.peers.read().unwrap().clone();
+        Ok(peers)
+    }
+
+    fn interval(&self) -> Duration {
+        self.poll_interval
+    }
+}
+
+/// A ServiceDiscovery that uses the default interval() implementation (10s).
+/// Used to cover the default trait method.
+pub struct DefaultIntervalServiceDiscovery {
+    pub peers: HashSet<GroupcachePeer>,
+}
+
+#[async_trait]
+impl ServiceDiscovery for DefaultIntervalServiceDiscovery {
+    async fn pull_instances(
+        &self,
+    ) -> std::result::Result<HashSet<GroupcachePeer>, Box<dyn Error + Send + Sync + 'static>> {
+        Ok(self.peers.clone())
+    }
+    // interval() is NOT overridden, exercising the default 10s implementation
+}
+
 pub async fn spawn_groupcache_instance(
     instance_id: &str,
     addr: &str,
@@ -109,8 +192,9 @@ pub async fn spawn_groupcache_instance(
 ) -> Result<TestGroupcache> {
     let listener = TcpListener::bind(addr).await.unwrap();
     let addr = listener.local_addr()?;
-    let groupcache = Groupcache::builder(addr.into(), TestCacheLoader::new(instance_id))
+    let groupcache = Groupcache::builder(addr.into(), TestCacheLoader::new(instance_id), groupcache::CancellationToken::new())
         .hot_cache(CacheBuilder::default().time_to_live(HOT_CACHE_TTL).build())
+        .enable_invalidation_streaming()
         .build();
 
     let server = groupcache.grpc_service();

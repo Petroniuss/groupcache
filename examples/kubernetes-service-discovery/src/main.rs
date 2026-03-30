@@ -3,7 +3,7 @@ mod cache;
 mod k8s;
 
 use crate::cache::CachedValue;
-use crate::k8s::Kubernetes;
+use crate::k8s::KubernetesDiscovery;
 use anyhow::Context;
 use anyhow::Result;
 use axum::extract::{Path, State};
@@ -59,8 +59,15 @@ async fn main() -> Result<()> {
     let client = Client::try_default().await?;
 
     // Configuring groupcache to use Kubernetes API server for peer auto-discovery.
-    let groupcache = Groupcache::builder(addr.into(), loader)
-        .service_discovery(Kubernetes::builder().client(client).build())
+    let discovery = KubernetesDiscovery::builder()
+        .client(client)
+        .label_selector("app=groupcache-powered-backend")
+        .port(pod_port.parse()?)
+        .build()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let groupcache = Groupcache::builder(addr.into(), loader, groupcache::CancellationToken::new())
+        .service_discovery(discovery)
         .build();
 
     // Example axum app with endpoint to retrieve value from groupcache.

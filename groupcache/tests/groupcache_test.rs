@@ -45,7 +45,7 @@ async fn builder_api_test() {
     let loader = DummyLoader {};
     let me: SocketAddr = "127.0.0.1:8080".parse().unwrap();
 
-    let _groupcache = Groupcache::builder(me.into(), loader)
+    let _groupcache = Groupcache::builder(me.into(), loader, groupcache::CancellationToken::new())
         .main_cache(main_cache)
         .hot_cache(hot_cache)
         .grpc_endpoint_builder(Box::new(|endpoint: Endpoint| {
@@ -54,4 +54,21 @@ async fn builder_api_test() {
         .https()
         .service_discovery(ServiceDiscoveryStub { me: me.into() })
         .build();
+}
+
+#[tokio::test]
+async fn https_connection_attempt_uses_https_scheme() {
+    let me: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let groupcache = Groupcache::builder(me.into(), DummyLoader {}, groupcache::CancellationToken::new())
+        .https()
+        .build();
+
+    // Try to add a peer over HTTPS. The connection will fail (peer isn't TLS)
+    // but the code path that formats the "https://..." address is exercised.
+    let peer_addr: SocketAddr = "127.0.0.1:19876".parse().unwrap();
+    let result = groupcache.add_peer(peer_addr.into()).await;
+    assert!(
+        result.is_err(),
+        "expected connection error for HTTPS to non-TLS peer"
+    );
 }

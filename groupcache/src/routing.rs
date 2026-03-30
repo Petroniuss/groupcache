@@ -2,10 +2,12 @@ use crate::groupcache::{GroupcachePeer, GroupcachePeerClient};
 use anyhow::{Context, Result};
 use hashring::HashRing;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 
-static VNODES_PER_PEER: i32 = 40;
+static VNODES_PER_PEER: u32 = 40;
 
+#[derive(Clone)]
 pub(crate) struct RoutingState {
     peers: HashMap<GroupcachePeer, GroupcachePeerClient>,
     ring: HashRing<VNode>,
@@ -45,6 +47,11 @@ impl RoutingState {
         Ok(GroupcachePeerWithClient { peer, client })
     }
 
+    /// Returns the peer that owns the given key, or None if the ring is empty.
+    pub(crate) fn owner_of(&self, key: &str) -> Option<GroupcachePeer> {
+        self.ring.get(&key).map(|vnode| vnode.as_peer())
+    }
+
     fn peer_for_key(&self, key: &str) -> Result<GroupcachePeer> {
         let vnode = self
             .ring
@@ -78,30 +85,30 @@ impl RoutingState {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct VNode {
-    addr_id: String,
+    addr: SocketAddr,
+    id: u32,
+}
+
+impl Hash for VNode {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Preserve the same hash distribution as the original string-based format
+        // so that upgrading doesn't reshuffle the hash ring.
+        format!("{}_{}", self.addr, self.id).hash(state);
+    }
 }
 
 impl VNode {
-    fn new(addr: SocketAddr, id: usize) -> Self {
-        Self {
-            addr_id: format!("{}_{}", addr, id),
-        }
+    fn new(addr: SocketAddr, id: u32) -> Self {
+        Self { addr, id }
     }
 
-    fn vnodes_for_peer(peer: GroupcachePeer, num: i32) -> Vec<VNode> {
-        let mut vnodes = Vec::new();
-        for i in 0..num {
-            let vnode = VNode::new(peer.socket, i as usize);
-
-            vnodes.push(vnode);
-        }
-        vnodes
+    fn vnodes_for_peer(peer: GroupcachePeer, num: u32) -> Vec<VNode> {
+        (0..num).map(|i| VNode::new(peer.socket, i)).collect()
     }
 
     fn as_peer(&self) -> GroupcachePeer {
-        let addr = self.addr_id.split('_').next().unwrap().parse().unwrap();
-        GroupcachePeer { socket: addr }
+        GroupcachePeer { socket: self.addr }
     }
 }

@@ -7,7 +7,7 @@ mod groupcache_pb;
 pub use crate::groupcache_pb::groupcache_client::GroupcacheClient;
 pub use crate::groupcache_pb::groupcache_server::Groupcache;
 use crate::groupcache_pb::groupcache_server::GroupcacheServer as GroupcacheGRPCServer;
-pub use crate::groupcache_pb::{GetRequest, GetResponse, RemoveRequest, RemoveResponse};
+pub use crate::groupcache_pb::{GetRequest, GetResponse, RemoveRequest, RemoveResponse, WatchRequest, InvalidationEvent};
 
 /// gRPC server implementing groupcache GET to retrieve values.
 pub type GroupcacheServer<T> = GroupcacheGRPCServer<T>;

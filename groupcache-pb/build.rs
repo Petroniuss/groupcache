@@ -1,20 +1,12 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // skip codegen if there hasn't been any updates.
-    if true {
-        return Ok(());
+    // Generated code is checked in so that users don't need protoc installed.
+    // To regenerate after updating the .proto or bumping tonic/prost versions,
+    // change `false` to `true` below and run `cargo build -p groupcache-pb`.
+    if false {
+        tonic_prost_build::configure()
+            .out_dir("src/")
+            .compile_protos(&["protos/groupcache.proto"], &["protos/"])?;
     }
 
-    let current_dir = std::env::current_dir()?;
-    if !current_dir.ends_with("groupcache-pb") {
-        return Err(format!(
-            "must be run from the root of the crate, instead was {:#?}",
-            current_dir
-        )
-        .into());
-    }
-
-    tonic_prost_build::configure()
-        .out_dir("src/")
-        .compile_protos(&["protos/groupcache.proto"], &["protos/"])?;
     Ok(())
 }

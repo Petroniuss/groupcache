@@ -4,8 +4,13 @@ use crate::groupcache::ValueBounds;
 use crate::metrics::METRIC_GET_SERVER_REQUESTS_TOTAL;
 use crate::GroupcacheInner;
 use async_trait::async_trait;
-use groupcache_pb::{GetRequest, GetResponse, Groupcache, RemoveRequest, RemoveResponse};
+use groupcache_pb::{
+    GetRequest, GetResponse, Groupcache, InvalidationEvent, RemoveRequest, RemoveResponse,
+    WatchRequest,
+};
 use metrics::counter;
+use std::pin::Pin;
+use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
 
 #[async_trait]
@@ -16,8 +21,7 @@ impl<Value: ValueBounds> Groupcache for GroupcacheInner<Value> {
         let payload = request.into_inner();
         match self.get(&payload.key).await {
             Ok(value) => {
-                let result = rmp_serde::to_vec(&value);
-                match result {
+                match crate::codec::serialize(&value) {
                     Ok(bytes) => Ok(Response::new(GetResponse { value: Some(bytes) })),
                     Err(err) => Err(Status::internal(err.to_string())),
                 }
@@ -36,5 +40,16 @@ impl<Value: ValueBounds> Groupcache for GroupcacheInner<Value> {
             Ok(_) => Ok(Response::new(RemoveResponse {})),
             Err(err) => Err(Status::internal(err.to_string())),
         }
+    }
+
+    type WatchInvalidationsStream =
+        Pin<Box<dyn Stream<Item = Result<InvalidationEvent, Status>> + Send>>;
+
+    async fn watch_invalidations(
+        &self,
+        _request: Request<WatchRequest>,
+    ) -> Result<Response<Self::WatchInvalidationsStream>, Status> {
+        let stream = self.invalidation.subscribe_stream();
+        Ok(Response::new(Box::pin(stream)))
     }
 }

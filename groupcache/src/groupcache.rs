@@ -9,6 +9,7 @@ use groupcache_pb::GroupcacheClient;
 use groupcache_pb::GroupcacheServer;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tonic::transport::Channel;
@@ -40,11 +41,16 @@ impl<Value: ValueBounds> Groupcache<Value> {
     /// In order to construct [`Groupcache`] application needs to provide:
     /// - [`GroupcachePeer`] - necessary for routing
     /// - [`ValueLoader`] implementation
+    /// - [`CancellationToken`](tokio_util::sync::CancellationToken) - for graceful shutdown
+    ///
+    /// When the token is cancelled, all background tasks (service discovery,
+    /// invalidation watchers) will stop gracefully.
     pub fn builder(
         me: GroupcachePeer,
         loader: impl ValueLoader<Value = Value> + 'static,
+        cancel: tokio_util::sync::CancellationToken,
     ) -> GroupcacheBuilder<Value> {
-        GroupcacheBuilder::new(me, Box::new(loader))
+        GroupcacheBuilder::new(me, Box::new(loader), cancel)
     }
 
     /// Provided a given `key`
@@ -160,6 +166,14 @@ impl<Value: ValueBounds> Groupcache<Value> {
     pub fn addr(&self) -> SocketAddr {
         self.0.addr()
     }
+
+    /// Returns a snapshot of the instance's current health and cache state.
+    ///
+    /// The library reports state; the application decides policy. See
+    /// [`status::HealthState`] for the possible states.
+    pub fn status(&self) -> crate::status::Status {
+        self.0.status()
+    }
 }
 
 /// [ValueLoader] loads a value for a particular key - which can be potentially expensive.
@@ -238,8 +252,26 @@ impl GroupcachePeer {
     }
 }
 
+impl fmt::Display for GroupcachePeer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.socket)
+    }
+}
+
 impl From<SocketAddr> for GroupcachePeer {
     fn from(value: SocketAddr) -> Self {
         Self { socket: value }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn groupcache_peer_display() {
+        let addr: SocketAddr = "127.0.0.1:9090".parse().unwrap();
+        let peer = GroupcachePeer::from_socket(addr);
+        assert_eq!(peer.to_string(), "127.0.0.1:9090");
     }
 }

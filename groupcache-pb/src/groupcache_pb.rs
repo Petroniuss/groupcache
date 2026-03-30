@@ -16,6 +16,13 @@ pub struct RemoveRequest {
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RemoveResponse {}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct WatchRequest {}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct InvalidationEvent {
+    #[prost(string, tag = "1")]
+    pub key: ::prost::alloc::string::String,
+}
 /// Generated client implementations.
 pub mod groupcache_client {
     #![allow(
@@ -149,6 +156,30 @@ pub mod groupcache_client {
                 .insert(GrpcMethod::new("groupcache_pb.Groupcache", "Remove"));
             self.inner.unary(req, path, codec).await
         }
+        pub async fn watch_invalidations(
+            &mut self,
+            request: impl tonic::IntoRequest<super::WatchRequest>,
+        ) -> std::result::Result<
+            tonic::Response<tonic::Streaming<super::InvalidationEvent>>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/groupcache_pb.Groupcache/WatchInvalidations",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("groupcache_pb.Groupcache", "WatchInvalidations"));
+            self.inner.server_streaming(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -172,6 +203,19 @@ pub mod groupcache_server {
             &self,
             request: tonic::Request<super::RemoveRequest>,
         ) -> std::result::Result<tonic::Response<super::RemoveResponse>, tonic::Status>;
+        /// Server streaming response type for the WatchInvalidations method.
+        type WatchInvalidationsStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::InvalidationEvent, tonic::Status>,
+            >
+            + std::marker::Send
+            + 'static;
+        async fn watch_invalidations(
+            &self,
+            request: tonic::Request<super::WatchRequest>,
+        ) -> std::result::Result<
+            tonic::Response<Self::WatchInvalidationsStream>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct GroupcacheServer<T> {
@@ -331,6 +375,51 @@ pub mod groupcache_server {
                                 max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/groupcache_pb.Groupcache/WatchInvalidations" => {
+                    #[allow(non_camel_case_types)]
+                    struct WatchInvalidationsSvc<T: Groupcache>(pub Arc<T>);
+                    impl<T: Groupcache>
+                        tonic::server::ServerStreamingService<super::WatchRequest>
+                    for WatchInvalidationsSvc<T> {
+                        type Response = super::InvalidationEvent;
+                        type ResponseStream = T::WatchInvalidationsStream;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::WatchRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Groupcache>::watch_invalidations(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = WatchInvalidationsSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.server_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

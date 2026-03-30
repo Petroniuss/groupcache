@@ -87,7 +87,7 @@ pub async fn spawn_groupcache_instance_on_addr(addr: SocketAddr) -> Result<Examp
         addr: addr.to_string(),
     };
 
-    let groupcache = Groupcache::builder(addr.into(), loader)
+    let groupcache = Groupcache::builder(addr.into(), loader, groupcache::CancellationToken::new())
         .hot_cache(
             CacheBuilder::default()
                 .time_to_live(Duration::from_secs(10))

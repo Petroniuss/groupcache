@@ -1,21 +1,22 @@
 [package]
-name = "groupcache-pb"
-version = "0.3.0"
+name = "groupcache-ng-pb"
+version = "0.4.0"
 edition = "2021"
-authors = ["Patryk Wojtyczek"]
+authors = ["Patryk Wojtyczek", "Henrik Johansson <dahankzter@gmail.com>"]
 categories = ["caching", "web-programming", "concurrency", "asynchronous"]
-description = "groupcache protocol buffers - internal crate"
-homepage = "https://github.com/Petroniuss/groupcache"
+description = "Protocol buffer definitions for groupcache-ng (internal crate)"
+homepage = "https://github.com/dahankzter/groupcache"
 keywords = ["distributed", "cache", "shard", "memcached", "gRPC"]
 license = "MIT"
 readme = "../readme.md"
-repository = "https://github.com/Petroniuss/groupcache"
+repository = "https://github.com/dahankzter/groupcache"
 
 [dependencies]
 prost = "0.14.1"
 tonic = "0.14.2"
 tonic-prost = "0.14.2"
 tonic-prost-build = { version = "0.14.2" }
+tokio-stream = "0.1"
 
 [build-dependencies]
 tonic-prost-build = { version = "0.14.2" }

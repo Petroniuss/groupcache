@@ -16,7 +16,14 @@ message RemoveRequest {
 
 message RemoveResponse {}
 
+message WatchRequest {}
+
+message InvalidationEvent {
+  string key = 1;
+}
+
 service Groupcache {
   rpc Get(GetRequest) returns (GetResponse) {};
   rpc Remove(RemoveRequest) returns (RemoveResponse) {};
+  rpc WatchInvalidations(WatchRequest) returns (stream InvalidationEvent) {};
 }
